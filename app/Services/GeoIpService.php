@@ -17,7 +17,7 @@ class GeoIpService
      * @param string $appCode 阿里云 AppCode，为空时跳过主查询
      * @return array{country:string,countryCode:string,province:string,city:string,org:string,isp:string}
      */
-    public static function getLocation(string $ip, string $appCode = '219472945636480ca87c0de4700ab8f2'): array
+    public static function getLocation(string $ip, string $appCode = ''): array
     {
         // 内网IP直接返回，不走缓存和API
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
@@ -41,7 +41,10 @@ class GeoIpService
             return $result;
         }
 
-        // IPv4 主查询：阿里云
+        // IPv4 主查询：阿里云（AppCode 优先用传入值，其次读 v2board 配置）
+        if (!$appCode) {
+            $appCode = config('v2board.aliyun_ip_appcode', '');
+        }
         if ($appCode) {
             try {
                 $ch = curl_init();
