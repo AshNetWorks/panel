@@ -15,7 +15,10 @@ use App\Services\PlanService;
 use App\Services\UserService;
 use App\Utils\Helper;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use App\Services\EmbyService;
 
 class OrderController extends Controller
 {
@@ -96,7 +99,12 @@ class OrderController extends Controller
             $order->period = 'deposit';
             $order->trade_no = Helper::generateOrderNo();
             $order->total_amount = $amount;
-            
+            [$clientIp, $clientGeo] = self::getClientIpAndGeo($request);
+            $order->client_ip       = $clientIp;
+            $order->client_country  = $clientGeo['country']  ?? null;
+            $order->client_province = $clientGeo['province'] ?? null;
+            $order->client_city     = $clientGeo['city']     ?? null;
+
             $orderService->setOrderType($user);
             $orderService->setInvite($user);
 
@@ -157,6 +165,11 @@ class OrderController extends Controller
         $order->period = $request->input('period');
         $order->trade_no = Helper::generateOrderNo();
         $order->total_amount = $plan[$request->input('period')];
+        [$clientIp, $clientGeo] = self::getClientIpAndGeo($request);
+        $order->client_ip       = $clientIp;
+        $order->client_country  = $clientGeo['country']  ?? null;
+        $order->client_province = $clientGeo['province'] ?? null;
+        $order->client_city     = $clientGeo['city']     ?? null;
 
         if ($request->input('coupon_code')) {
             $couponService = new CouponService($request->input('coupon_code'));
@@ -219,6 +232,8 @@ class OrderController extends Controller
         if ($order->total_amount <= 0) {
             $orderService = new OrderService($order);
             if (!$orderService->paid($order->trade_no)) abort(500, '');
+            // 支付为 0 的就地完成：若用户已注册 Emby，则触发同步（10 分钟节流）
+            $this->triggerEmbySyncIfRegistered($order->user_id);
             return response([
                 'type' => -1,
                 'data' => true
@@ -232,13 +247,37 @@ class OrderController extends Controller
             $order->handling_amount = round(($order->total_amount * ($payment->handling_fee_percent / 100)) + $payment->handling_fee_fixed);
         }
         $order->payment_id = $method;
+
+        // 获取 Referer 请求头
+        $referer = $request->header('referer');
+        $refererDomain = null;
+
+        // 检查 Referer 是否存在
+        if ($referer) {
+            // 解析 Referer URL 并重建只包含协议和主机名的 URL
+            $parsedUrl = parse_url($referer);
+            $refererDomain = isset($parsedUrl['scheme']) && isset($parsedUrl['host'])
+                ? $parsedUrl['scheme'] . '://' . $parsedUrl['host']
+                : null;
+        }
+
         if (!$order->save()) abort(500, __('Request failed, please try again later'));
-        $result = $paymentService->pay([
+
+        // 构建支付请求参数
+        $payParams = [
             'trade_no' => $tradeNo,
             'total_amount' => isset($order->handling_amount) ? ($order->total_amount + $order->handling_amount) : $order->total_amount,
             'user_id' => $order->user_id,
             'stripe_token' => $request->input('token')
-        ]);
+        ];
+
+        // 如果 $refererDomain 存在，添加 refer 参数
+        if ($refererDomain) {
+            $payParams['refer'] = $refererDomain;
+        }
+
+        $result = $paymentService->pay($payParams);
+
         return response([
             'type' => $result['type'],
             'data' => $result['data']
@@ -318,5 +357,51 @@ class OrderController extends Controller
             }
         }
         return $add;
+    }
+    /**
+     * 若用户已注册 Emby，则触发一次同步（续期/购买成功后调用，10 分钟节流）
+     */
+    private function triggerEmbySyncIfRegistered(int $userId): void
+    {
+        try {
+            $exists = DB::table('v2_emby_users')->where('user_id', $userId)->exists();
+            if (!$exists) return;
+
+            $key = 'emby:sync:user:' . $userId;
+            if (!Cache::add($key, 1, 600)) return;
+
+            app(EmbyService::class)->syncUserExpiration($userId);
+        } catch (\Throwable $e) {
+            Log::error('triggerEmbySyncIfRegistered failed', [
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    private static function getClientIpAndGeo(Request $request): array
+    {
+        $ip = '';
+        foreach (['CF-Connecting-IP', 'X-Real-IP', 'X-Forwarded-For'] as $header) {
+            $val = $request->header($header);
+            if ($val) {
+                $val = trim(explode(',', $val)[0]);
+                if (filter_var($val, FILTER_VALIDATE_IP)) { $ip = $val; break; }
+            }
+        }
+        if (!$ip) $ip = $request->ip() ?? '';
+
+        $geo = [];
+        if ($ip) {
+            $result = \App\Services\GeoIpService::getLocation($ip);
+            if ($result['country'] !== '未知') {
+                $geo = [
+                    'country'  => $result['country'],
+                    'province' => $result['province'],
+                    'city'     => $result['city'],
+                ];
+            }
+        }
+        return [$ip, $geo];
     }
 }

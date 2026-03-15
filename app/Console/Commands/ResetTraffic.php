@@ -122,7 +122,8 @@ class ResetTraffic extends Command
         $this->retryTransaction(function () use ($users) {
             User::whereIn('id', $users)->update([
                 'u' => 0,
-                'd' => 0
+                'd' => 0,
+                'transfer_enable' => DB::raw('COALESCE((SELECT transfer_enable * 1073741824 FROM v2_plan WHERE id = plan_id), transfer_enable)'),
             ]);
         });
     }
@@ -133,7 +134,8 @@ class ResetTraffic extends Command
             $this->retryTransaction(function () use ($builder) {
                 $builder->update([
                     'u' => 0,
-                    'd' => 0
+                    'd' => 0,
+                    'transfer_enable' => DB::raw('COALESCE((SELECT transfer_enable * 1073741824 FROM v2_plan WHERE id = plan_id), transfer_enable)'),
                 ]);
             });
         }
@@ -145,7 +147,8 @@ class ResetTraffic extends Command
             $this->retryTransaction(function () use ($builder) {
                 $builder->update([
                     'u' => 0,
-                    'd' => 0
+                    'd' => 0,
+                    'transfer_enable' => DB::raw('COALESCE((SELECT transfer_enable * 1073741824 FROM v2_plan WHERE id = plan_id), transfer_enable)'),
                 ]);
             });
         }
@@ -169,7 +172,8 @@ class ResetTraffic extends Command
         $this->retryTransaction(function () use ($users) {
             User::whereIn('id', $users)->update([
                 'u' => 0,
-                'd' => 0
+                'd' => 0,
+                'transfer_enable' => DB::raw('COALESCE((SELECT transfer_enable * 1073741824 FROM v2_plan WHERE id = plan_id), transfer_enable)'),
             ]);
         });
     }

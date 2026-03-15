@@ -3,10 +3,14 @@
 namespace App\Services;
 
 use App\Jobs\OrderHandleJob;
+use App\Jobs\SendTelegramJob;
 use App\Models\Order;
 use App\Models\Plan;
 use App\Models\User;
+use App\Services\WatchNotifyService;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class OrderService
 {
@@ -99,6 +103,15 @@ class OrderService
         }
 
         DB::commit();
+
+        // ✅ 监控名单检查（仅订阅类型：新购/续费/升级）
+        if (in_array((int)$order->type, [1, 2, 3])) {
+            try {
+                $this->notifyWatchIfNeeded();
+            } catch (\Exception $e) {
+                Log::error('Watch: 订单通知失败', ['error' => $e->getMessage()]);
+            }
+        }
     }
 
 
@@ -374,6 +387,67 @@ class OrderService
             case 1:
                 $this->buyByResetTraffic();
                 break;
+        }
+    }
+
+    /**
+     * 监控名单通知（订单激活时）
+     * 检查下单用户是否被监控，或其近期 IP 是否与被监控用户重合
+     */
+    private function notifyWatchIfNeeded(): void
+    {
+        if (!config('v2board.telegram_bot_enable', 0)) return;
+
+        $adminIds = WatchNotifyService::getAdminTelegramIds();
+        if (empty($adminIds)) return;
+
+        $user  = $this->user;
+        $order = $this->order;
+
+        $typeMap = [1 => '新购', 2 => '续费', 3 => '升级'];
+        $typeStr = $typeMap[$order->type] ?? '购买';
+        $amount  = number_format(($order->total_amount + ($order->balance_amount ?? 0)) / 100, 2);
+        $now     = date('Y-m-d H:i:s');
+
+        // 查询该用户 48h 内最近一次订阅拉取 IP
+        $recentLog = DB::table('v2_subscribe_pull_log')
+            ->where('user_id', $user->id)
+            ->where('created_at', '>=', Carbon::now()->subHours(48))
+            ->orderBy('created_at', 'desc')
+            ->first();
+        $ipLine = $recentLog
+            ? "\n🌐 近期IP：`{$recentLog->ip}` （{$recentLog->country} {$recentLog->city}）"
+            : '';
+
+        // Case 1：当前用户本身在监控名单中
+        $watchEntry = WatchNotifyService::isWatched($user->id);
+        if ($watchEntry) {
+            $noteStr = !empty($watchEntry['note']) ? "\n📝 备注：{$watchEntry['note']}" : '';
+            $msg = "🚨 *\[监控\] 用户{$typeStr}订阅*\n———————————————\n" .
+                   "👤 邮箱：`{$user->email}`" . $noteStr . "\n" .
+                   "💰 金额：`¥{$amount}`\n" .
+                   "⏰ 时间：`{$now}`" . $ipLine;
+            foreach ($adminIds as $adminId) {
+                SendTelegramJob::dispatch($adminId, $msg);
+            }
+        }
+
+        // Case 2：当前用户 IP 与监控用户历史 IP 重合（且不是同一人）
+        if ($recentLog) {
+            $ipMatch = WatchNotifyService::getWatchedUserByIp($recentLog->ip);
+            if ($ipMatch && $ipMatch[1]->id !== $user->id) {
+                [$watchEntry2, $watchedUser] = $ipMatch;
+                $noteStr2 = !empty($watchEntry2['note']) ? "\n📝 被监控用户备注：{$watchEntry2['note']}" : '';
+                $msg2 = "🔍 *\[同IP\] 用户{$typeStr}订阅*\n———————————————\n" .
+                        "👤 当前用户：`{$user->email}`\n" .
+                        "🔗 同IP监控用户：`{$watchedUser->email}`" . $noteStr2 . "\n" .
+                        "💰 金额：`¥{$amount}`\n" .
+                        "⏰ 时间：`{$now}`\n" .
+                        "🌐 IP：`{$recentLog->ip}` （{$recentLog->country} {$recentLog->city}）";
+                foreach ($adminIds as $adminId) {
+                    SendTelegramJob::dispatch($adminId, $msg2);
+                }
+            }
         }
     }
 

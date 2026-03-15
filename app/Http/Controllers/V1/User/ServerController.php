@@ -26,6 +26,12 @@ class ServerController extends Controller
             abort(304);
         }
 
+        // 隐藏入口IP，不暴露给前端
+        $servers = array_map(function ($server) {
+            unset($server['host']);
+            return $server;
+        }, $servers);
+
         return response([
             'data' => $servers
         ])->header('ETag', "\"{$eTag}\"");

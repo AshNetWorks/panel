@@ -62,6 +62,38 @@ class UserRoute
             $router->get ('/knowledge/getCategory', 'V1\\User\\KnowledgeController@getCategory');
             // Stat
             $router->get ('/stat/getTrafficLog', 'V1\\User\\StatController@getTrafficLog');
+            // Subscribe Log
+            $router->get('/subscribeLog/fetch', 'V1\\User\\SubscribeLogController@fetch');
+            $router->get('/subscribeLog/statistics', 'V1\\User\\SubscribeLogController@statistics');
+            // Subscribe Whitelist
+            $router->get ('/subscribeWhitelist/fetch', 'V1\\User\\SubscribeWhitelistController@fetch');
+            $router->post('/subscribeWhitelist/save',  'V1\\User\\SubscribeWhitelistController@save');
+            $router->post('/subscribeWhitelist/drop',  'V1\\User\\SubscribeWhitelistController@drop');
+            // ============ Emby 路由（完整版本）============
+            // 普通用户功能
+            $router->get ('/emby/fetch', 'V1\\User\\EmbyController@fetch');
+            $router->post('/emby/save', 'V1\\User\\EmbyController@save');
+            $router->post('/emby/drop', 'V1\\User\\EmbyController@drop');
+            $router->post('/emby/resetPassword', 'V1\\User\\EmbyController@resetPassword');
+            $router->get ('/emby/getServerStatus', 'V1\\User\\EmbyController@getServerStatus');
+            
+            // 管理员功能（通过权限检查控制访问）
+            $router->get ('/emby/getStatistics', 'V1\\User\\EmbyController@getStatistics');
+            $router->get ('/emby/getServers', 'V1\\User\\EmbyController@getServers');
+            $router->post('/emby/saveServer', 'V1\\User\\EmbyController@saveServer');
+            $router->post('/emby/dropServer', 'V1\\User\\EmbyController@dropServer');
+            $router->post('/emby/testServer', 'V1\\User\\EmbyController@testServer');
+            $router->get ('/emby/getUsers', 'V1\\User\\EmbyController@getUsers');
+            $router->post('/emby/dropUser', 'V1\\User\\EmbyController@dropUser');
+            $router->post('/emby/syncUsers', 'V1\\User\\EmbyController@syncUsers');
+            $router->get ('/emby/getLogs', 'V1\\User\\EmbyController@getLogs');
+            
+            // 新增的管理员功能路由
+            $router->post('/emby/clearLogs', 'V1\\User\\EmbyController@clearLogs');
+            $router->get ('/emby/exportLogs', 'V1\\User\\EmbyController@exportLogs');
+            $router->post('/emby/batchCleanup', 'V1\\User\\EmbyController@batchCleanup');
+            $router->post('/emby/batchSync', 'V1\\User\\EmbyController@batchSync');
+            $router->post('/emby/diagnose', 'V1\\User\\EmbyController@diagnose');
         });
     }
 }

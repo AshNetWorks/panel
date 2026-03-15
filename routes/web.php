@@ -51,6 +51,21 @@ Route::get('/' . config('v2board.secure_path', config('v2board.frontend_admin_pa
     ]);
 });
 
+// 轻量探测接口：仅返回客户端 IPv6，IPv4 或本地调试时返回 null
+Route::get('/api/client-ip', function (Request $request) {
+    try {
+        $ip = $request->header('CF-Connecting-IP')
+            ?? $request->header('X-Real-IP')
+            ?? explode(',', $request->header('X-Forwarded-For', ''))[0]
+            ?: $request->ip();
+        $ip = trim((string)$ip);
+        $isIPv6 = $ip !== '' && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false;
+        return response()->json(['ip' => $isIPv6 ? $ip : null]);
+    } catch (\Throwable) {
+        return response()->json(['ip' => null]);
+    }
+});
+
 if (!empty(config('v2board.subscribe_path'))) {
     Route::get(config('v2board.subscribe_path'), 'V1\\Client\\ClientController@subscribe')->middleware('client');
 }

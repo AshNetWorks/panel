@@ -2,8 +2,10 @@
 
 namespace App\Plugins\Telegram\Commands;
 
+use App\Jobs\SendTelegramJob;
 use App\Models\User;
 use App\Plugins\Telegram\Telegram;
+use App\Services\WatchNotifyService;
 use App\Utils\Helper;
 use Illuminate\Support\Facades\Cache;
 
@@ -18,10 +20,16 @@ class Bind extends Telegram {
         }
         $subscribeUrl = $message->args[0];
         $subscribeUrl = parse_url($subscribeUrl);
-        parse_str($subscribeUrl['query'], $query);
-        $token = $query['token'];
+        parse_str($subscribeUrl['query'] ?? '', $query);
+        $token = $query['token'] ?? null;
         if (!$token) {
             abort(500, '订阅地址无效');
+        }
+
+        // ✅ 移除伪装后缀（仅当配置了后缀时）
+        $disguiseSuffix = config('v2board.subscribe_url_suffix');
+        if ($disguiseSuffix && substr($token, -strlen($disguiseSuffix)) === $disguiseSuffix) {
+            $token = substr($token, 0, -strlen($disguiseSuffix));
         }
         $submethod = (int)config('v2board.show_subscribe_method', 0);
         switch ($submethod) {
@@ -75,5 +83,27 @@ class Bind extends Telegram {
         }
         $telegramService = $this->telegramService;
         $telegramService->sendMessage($message->chat_id, '绑定成功');
+
+        // 检测短时间内解绑后换绑新 TG 账号的行为
+        $rebindKey = 'tg_rebind_' . $user->id;
+        $rebindInfo = Cache::get($rebindKey);
+        if ($rebindInfo && (int)$rebindInfo['old_telegram_id'] !== (int)$message->chat_id) {
+            Cache::forget($rebindKey);
+            $email      = str_replace(['_', '*', '[', '`'], ['\_', '\*', '\[', '\`'], $rebindInfo['email']);
+            $oldTgLabel = $rebindInfo['old_username']
+                ? '@' . $rebindInfo['old_username']
+                : ($rebindInfo['old_first_name'] ?? '未知');
+            $newTgLabel = ($message->from_username ?? null)
+                ? '@' . $message->from_username
+                : ($message->from_first_name ?? '未知');
+            $notice = "⚠️ *TG 账号更换提醒*\n"
+                . "👤 用户：`{$email}`\n"
+                . "🔄 在 1 小时内解绑旧 TG 账号后绑定了新账号\n"
+                . "📌 旧：`" . $rebindInfo['old_telegram_id'] . "` （{$oldTgLabel}）\n"
+                . "📌 新：`" . $message->chat_id . "` （{$newTgLabel}）";
+            foreach (WatchNotifyService::getAdminTelegramIds() as $adminId) {
+                SendTelegramJob::dispatch($adminId, $notice);
+            }
+        }
     }
 }

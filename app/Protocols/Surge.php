@@ -51,6 +51,11 @@ class Surge
                 $proxies .= self::buildHysteria($user['uuid'], $item);
                 // [Proxy Group]
                 $proxyGroup .= $item['name'] . ', ';
+            }elseif ($item['type'] === 'anytls') {
+                // [Proxy]
+                $proxies .= self::buildAnyTLS($user['uuid'], $item);
+                // [Proxy Group]
+                $proxyGroup .= $item['name'] . ', ';
             }
         }
 
@@ -183,6 +188,22 @@ class Surge
             }
         }
         $config = array_filter($config);
+        $uri = implode(',', $config);
+        $uri .= "\r\n";
+        return $uri;
+    }
+
+    public static function buildAnyTLS($password, $server)
+    {
+        $config = [
+            "{$server['name']}=anytls",
+            "{$server['host']}",
+            "{$server['port']}",
+            "password={$password}",
+            'tfo=true',
+        ];
+        if ($sni = $server['server_name'] ?? $server['tls_settings']['server_name'] ?? null) $config[] = "sni={$sni}";
+        if (($server['insecure'] ?? $server['tls_settings']['allow_insecure'] ?? 0) == 1) $config[] = "skip-cert-verify=true";
         $uri = implode(',', $config);
         $uri .= "\r\n";
         return $uri;
