@@ -64,8 +64,8 @@ class ClientController extends Controller
         $userAgent = $request->header('User-Agent', 'unknown');
         $userAgentLower = strtolower($userAgent);
 
-        // NetFlow 客户端跳过所有限制，直接下发订阅
-        if (strpos($userAgentLower, 'netflow') !== false) {
+        // NetFlow / SuperAccelerator 客户端跳过所有限制，直接下发订阅
+        if (strpos($userAgentLower, 'netflow') !== false || strpos($userAgentLower, 'superaccelerator') !== false) {
             $userService = new UserService();
             if ($userService->isAvailable($user)) {
                 return $this->buildSubscription($request, $user, $flag);
