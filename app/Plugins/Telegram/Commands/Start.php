@@ -9,11 +9,37 @@ class Start extends Telegram
 {
     public $command = '/start';
     public $description = '开始使用机器人';
-    
+
     public function handle($message, $match = [])
     {
         if (!$message->is_private) return;
-        
+
+        // 处理深链接绑定：/start TOKEN（来自面板跳转链接 t.me/bot?start=TOKEN）
+        $startToken = $message->args[0] ?? null;
+        if ($startToken) {
+            $token = $startToken;
+            // 移除伪装后缀（若配置了）
+            $disguiseSuffix = config('v2board.subscribe_url_suffix');
+            if ($disguiseSuffix && substr($token, -strlen($disguiseSuffix)) === $disguiseSuffix) {
+                $token = substr($token, 0, -strlen($disguiseSuffix));
+            }
+            $bindUser = User::where('token', $token)->first();
+            if ($bindUser) {
+                if ($bindUser->telegram_id) {
+                    $this->telegramService->sendMessage($message->chat_id, '❌ 该账号已绑定了 Telegram 账号，请先解绑后重试。');
+                    return;
+                }
+                $bindUser->telegram_id = $message->chat_id;
+                if ($bindUser->save()) {
+                    $this->telegramService->sendMessage($message->chat_id, '✅ 绑定成功！发送 /start 查看账户信息。');
+                    return;
+                }
+                $this->telegramService->sendMessage($message->chat_id, '❌ 绑定失败，请稍后重试。');
+                return;
+            }
+            // token 无效时不中断，继续走正常 /start 流程
+        }
+
         $user = User::where('telegram_id', $message->chat_id)->first();
         
         if (!$user) {
