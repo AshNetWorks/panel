@@ -30,11 +30,38 @@ class Start extends Telegram
                     return;
                 }
                 $bindUser->telegram_id = $message->chat_id;
-                if ($bindUser->save()) {
-                    $this->telegramService->sendMessage($message->chat_id, '✅ 绑定成功！发送 /start 查看账户信息。');
+                if (!$bindUser->save()) {
+                    $this->telegramService->sendMessage($message->chat_id, '❌ 绑定失败，请稍后重试。');
                     return;
                 }
-                $this->telegramService->sendMessage($message->chat_id, '❌ 绑定失败，请稍后重试。');
+
+                // 尝试自动发送内部群邀请链接
+                $groupChatId = config('v2board.telegram_group_id');
+                $inviteLink = null;
+                if ($groupChatId && !$bindUser->banned && ($bindUser->expired_at === null || (int)$bindUser->expired_at > time())) {
+                    try {
+                        $response = $this->telegramService->createChatInviteLink($groupChatId, [
+                            'name'               => "新绑定用户 - {$bindUser->email}",
+                            'expire_date'        => time() + 1800,
+                            'member_limit'       => 1,
+                            'creates_join_request' => false,
+                        ]);
+                        if ($response && isset($response->invite_link)) {
+                            $inviteLink = $response->invite_link;
+                        }
+                    } catch (\Exception $e) {
+                        // 邀请链接生成失败不影响绑定成功提示
+                    }
+                }
+
+                if ($inviteLink) {
+                    $this->telegramService->sendMessage(
+                        $message->chat_id,
+                        "✅ 绑定成功！\n\n🎉 内部群组邀请链接：\n{$inviteLink}\n\n⚠️ 链接仅限您个人使用，30分钟内有效，只可使用一次。"
+                    );
+                } else {
+                    $this->telegramService->sendMessage($message->chat_id, '✅ 绑定成功！发送 /join 获取内部群邀请链接，发送 /start 查看账户信息。');
+                }
                 return;
             }
             // token 无效时不中断，继续走正常 /start 流程
