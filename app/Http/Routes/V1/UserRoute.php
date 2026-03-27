@@ -54,6 +54,7 @@ class UserRoute
             $router->post('/coupon/check', 'V1\\User\\CouponController@check');
             // Telegram
             $router->get ('/telegram/getBotInfo', 'V1\\User\\TelegramController@getBotInfo');
+            $router->get ('/telegram/getStatus',  'V1\\User\\TelegramController@getStatus');
             // Comm
             $router->get ('/comm/config', 'V1\\User\\CommController@config');
             $router->Post('/comm/getStripePublicKey', 'V1\\User\\CommController@getStripePublicKey');
