@@ -62,7 +62,8 @@ class UserRoute
             $router->get ('/knowledge/fetch', 'V1\\User\\KnowledgeController@fetch');
             $router->get ('/knowledge/getCategory', 'V1\\User\\KnowledgeController@getCategory');
             // Stat
-            $router->get ('/stat/getTrafficLog', 'V1\\User\\StatController@getTrafficLog');
+            $router->get ('/stat/getTrafficLog',     'V1\\User\\StatController@getTrafficLog');
+            $router->get ('/stat/getNodeTrafficLog', 'V1\\User\\StatController@getNodeTrafficLog');
             // Subscribe Log
             $router->get('/subscribeLog/fetch', 'V1\\User\\SubscribeLogController@fetch');
             $router->get('/subscribeLog/statistics', 'V1\\User\\SubscribeLogController@statistics');
