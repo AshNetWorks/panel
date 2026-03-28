@@ -58,7 +58,7 @@ class StatController extends Controller
             ->where('user_id', $user->id)
             ->where('log_at', '>=', $cycleStart)
             ->groupBy('server_id', 'method')
-            ->orderByDesc('total')
+            ->orderBy(DB::raw('SUM(u) + SUM(d)'), 'DESC')
             ->get();
 
         // 收集各协议下需要查找名称的 server_id
