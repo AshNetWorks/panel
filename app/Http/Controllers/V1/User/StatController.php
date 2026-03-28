@@ -47,35 +47,36 @@ class StatController extends Controller
 
         $cycleStart = $this->getCycleStart($user);
 
-        // 查询当前周期内该用户的分节点流量，按节点+协议汇总
-        $logs = ServerLog::select([
+        // 查询当前周期内该用户的分节点流量
+        $logs = DB::table('v2_server_log')
+            ->select([
                 'server_id',
-                'method',
+                'server_type',
                 DB::raw('SUM(u) as u'),
                 DB::raw('SUM(d) as d'),
                 DB::raw('SUM(u) + SUM(d) as total'),
             ])
             ->where('user_id', $user->id)
             ->where('log_at', '>=', $cycleStart)
-            ->groupBy('server_id', 'method')
+            ->groupBy('server_id', 'server_type')
             ->orderBy(DB::raw('SUM(u) + SUM(d)'), 'DESC')
             ->get();
 
         // 收集各协议下需要查找名称的 server_id
         $idsByType = [];
         foreach ($logs as $log) {
-            $idsByType[$log->method][] = $log->server_id;
+            $idsByType[$log->server_type][] = $log->server_id;
         }
 
         // 按协议批量查节点名称
         $nameMap = $this->fetchServerNames($idsByType);
 
         $result = $logs->map(function ($log) use ($nameMap) {
-            $key = $log->method . '_' . $log->server_id;
+            $key = $log->server_type . '_' . $log->server_id;
             return [
                 'server_id'   => $log->server_id,
                 'server_name' => $nameMap[$key] ?? ('节点#' . $log->server_id),
-                'server_type' => $log->method,
+                'server_type' => $log->server_type,
                 'u'           => (int) $log->u,
                 'd'           => (int) $log->d,
                 'total'       => (int) $log->total,

@@ -83,6 +83,36 @@ class StatUserJob implements ShouldQueue
                         StatUser::upsert($chunk->toArray(), ['user_id', 'server_rate', 'record_at']);
                     });
                 }
+                // 写按节点流量记录
+                if (!empty($this->server['id'])) {
+                    $serverId   = (int) $this->server['id'];
+                    $serverType = $this->protocol ?? '';
+                    $rate       = $this->server['rate'];
+                    $now        = time();
+                    $nodeRows   = [];
+                    $bindings   = [];
+                    foreach ($this->data as $userId => $trafficData) {
+                        $nodeRows[] = '(?,?,?,?,?,?,?,?,?)';
+                        array_push($bindings,
+                            $userId, $serverId, $serverType,
+                            $trafficData[0], $trafficData[1],
+                            $rate, $recordAt, $now, $now
+                        );
+                    }
+                    if (!empty($nodeRows)) {
+                        DB::statement(
+                            'INSERT INTO v2_server_log
+                             (user_id, server_id, server_type, u, d, rate, log_at, created_at, updated_at)
+                             VALUES ' . implode(',', $nodeRows) . '
+                             ON DUPLICATE KEY UPDATE
+                             u = u + VALUES(u),
+                             d = d + VALUES(d),
+                             updated_at = VALUES(updated_at)',
+                            $bindings
+                        );
+                    }
+                }
+
                 DB::commit();
                 return;
             } catch (\Exception $e) {
