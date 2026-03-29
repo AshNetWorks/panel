@@ -22,7 +22,14 @@ class StatController extends Controller
 {
     public function getTrafficLog(Request $request)
     {
-        $thirtyDaysAgo = strtotime('-30 days', time());
+        $user = User::find($request->user['id']);
+        if (!$user) {
+            abort(500, '用户不存在');
+        }
+
+        $cycleStart = $this->getCycleStart($user);
+        $cycleEnd   = $this->getCycleEnd($user, $cycleStart);
+
         $builder = StatUser::select([
             'u',
             'd',
@@ -30,11 +37,16 @@ class StatController extends Controller
             'user_id',
             'server_rate'
         ])
-            ->where('user_id', $request->user['id'])
-            ->where('record_at', '>=', $thirtyDaysAgo)
+            ->where('user_id', $user->id)
+            ->where('record_at', '>=', $cycleStart)
             ->orderBy('record_at', 'DESC');
+
         return response([
-            'data' => $builder->get()
+            'data' => [
+                'cycle_start' => $cycleStart,
+                'cycle_end'   => $cycleEnd,
+                'logs'        => $builder->get(),
+            ]
         ]);
     }
 
@@ -46,6 +58,7 @@ class StatController extends Controller
         }
 
         $cycleStart = $this->getCycleStart($user);
+        $cycleEnd   = $this->getCycleEnd($user, $cycleStart);
 
         // 查询当前周期内该用户的分节点流量
         $logs = DB::table('v2_server_log')
@@ -86,6 +99,7 @@ class StatController extends Controller
         return response([
             'data' => [
                 'cycle_start' => $cycleStart,
+                'cycle_end'   => $cycleEnd,
                 'logs'        => $result,
             ]
         ]);
@@ -144,6 +158,63 @@ class StatController extends Controller
 
             default:
                 return strtotime(date('Y-m-01 00:00:00'));
+        }
+    }
+
+    /**
+     * 根据周期起始时间计算周期截止时间戳（当天 23:59:59）
+     */
+    private function getCycleEnd(User $user, int $cycleStart): int
+    {
+        $resetMethod = null;
+        if ($user->plan_id) {
+            $plan = Plan::find($user->plan_id);
+            $resetMethod = $plan ? $plan->reset_traffic_method : null;
+        }
+        if ($resetMethod === null) {
+            $resetMethod = (int) config('v2board.reset_traffic_method', 0);
+        }
+
+        switch ((int) $resetMethod) {
+            case 0: // 每月1号 → 本月最后一天
+                return strtotime(date('Y-m-t 23:59:59'));
+
+            case 1: // 按到期日当天 → 下一个到期日前一天
+                if (!$user->expired_at) {
+                    return strtotime(date('Y-m-t 23:59:59'));
+                }
+                $expireDay = (int) date('d', $user->expired_at);
+                $today = (int) date('d');
+                if ($today >= $expireDay) {
+                    // 下月的到期日前一秒
+                    $next = strtotime(date('Y-m-' . sprintf('%02d', $expireDay), strtotime('next month')));
+                } else {
+                    // 本月的到期日前一秒
+                    $next = strtotime(date('Y-m-' . sprintf('%02d', $expireDay)));
+                }
+                return $next - 1;
+
+            case 2: // 不重置 → 今天结束
+                return strtotime(date('Y-m-d 23:59:59'));
+
+            case 3: // 每年1月1日 → 本年最后一天
+                return strtotime(date('Y-12-31 23:59:59'));
+
+            case 4: // 按到期年份当天 → 下一个周年前一秒
+                if (!$user->expired_at) {
+                    return strtotime(date('Y-12-31 23:59:59'));
+                }
+                $expireMd = date('m-d', $user->expired_at);
+                $todayMd  = date('m-d');
+                if ($todayMd >= $expireMd) {
+                    $next = strtotime((date('Y') + 1) . '-' . $expireMd);
+                } else {
+                    $next = strtotime(date('Y') . '-' . $expireMd);
+                }
+                return $next - 1;
+
+            default:
+                return strtotime(date('Y-m-t 23:59:59'));
         }
     }
 
