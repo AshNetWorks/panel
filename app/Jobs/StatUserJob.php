@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Models\StatServer;
 use App\Models\StatUser;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -10,6 +9,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class StatUserJob implements ShouldQueue
 {
@@ -22,45 +22,32 @@ class StatUserJob implements ShouldQueue
     public $tries = 3;
     public $timeout = 60;
 
-    /**
-     * Create a new job instance.
-     *
-     * @return void
-     */
     public function __construct(array $data, array $server, $protocol, $recordType = 'd')
     {
         $this->onQueue('stat');
-        $this->data =$data;
+        $this->data = $data;
         $this->server = $server;
         $this->protocol = $protocol;
         $this->recordType = $recordType;
     }
 
-    /**
-     * Execute the job.
-     *
-     * @return void
-     */
     public function handle()
     {
         $recordAt = strtotime(date('Y-m-d'));
-        if ($this->recordType === 'm') {
-            //
-        }
         $attempt = 0;
         $maxAttempts = 3;
         $existingData = StatUser::where('record_at', $recordAt)
-        ->where('server_rate', $this->server['rate'])
-        ->whereIn('user_id', array_keys($this->data))
-        ->select(['user_id', 'id', 'u', 'd'])
-        ->get()
-        ->keyBy('user_id');
+            ->where('server_rate', $this->server['rate'])
+            ->whereIn('user_id', array_keys($this->data))
+            ->select(['user_id', 'id', 'u', 'd'])
+            ->get()
+            ->keyBy('user_id');
 
         $insertData = [];
         while ($attempt < $maxAttempts) {
             try {
                 DB::beginTransaction();
-                foreach($this->data as $userId => $trafficData){
+                foreach ($this->data as $userId => $trafficData) {
                     if (isset($existingData[$userId])) {
                         $userdata = StatUser::where('id', $existingData[$userId]['id'])->first();
                         $userdata->update([
@@ -84,42 +71,7 @@ class StatUserJob implements ShouldQueue
                     });
                 }
                 DB::commit();
-
-                // 写按节点流量记录（事务外，失败不影响主统计）
-                if (!empty($this->server['id'])) {
-                    try {
-                        $serverId   = (int) $this->server['id'];
-                        $serverType = $this->protocol ?? '';
-                        $rate       = $this->server['rate'];
-                        $now        = time();
-                        $nodeRows   = [];
-                        $bindings   = [];
-                        foreach ($this->data as $userId => $trafficData) {
-                            $nodeRows[] = '(?,?,?,?,?,?,?,?,?)';
-                            array_push($bindings,
-                                $userId, $serverId, $serverType,
-                                $trafficData[0], $trafficData[1],
-                                $rate, $recordAt, $now, $now
-                            );
-                        }
-                        if (!empty($nodeRows)) {
-                            DB::statement(
-                                'INSERT INTO v2_server_log
-                                 (user_id, server_id, server_type, u, d, rate, log_at, created_at, updated_at)
-                                 VALUES ' . implode(',', $nodeRows) . '
-                                 ON DUPLICATE KEY UPDATE
-                                 u = u + VALUES(u),
-                                 d = d + VALUES(d),
-                                 updated_at = VALUES(updated_at)',
-                                $bindings
-                            );
-                        }
-                    } catch (\Exception $e) {
-                        // 节点日志写入失败不影响主流程
-                    }
-                }
-
-                return;
+                break;
             } catch (\Exception $e) {
                 DB::rollback();
                 if (strpos($e->getMessage(), '40001') !== false || strpos(strtolower($e->getMessage()), 'deadlock') !== false) {
@@ -129,7 +81,41 @@ class StatUserJob implements ShouldQueue
                         continue;
                     }
                 }
-                abort(500, '用户统计数据失败'. $e->getMessage());
+                abort(500, '用户统计数据失败' . $e->getMessage());
+            }
+        }
+
+        // 写按节点流量记录（独立执行，失败不影响主统计）
+        if (!empty($this->server['id'])) {
+            try {
+                $serverId   = (int) $this->server['id'];
+                $serverType = $this->protocol ?? '';
+                $rate       = $this->server['rate'];
+                $now        = time();
+                $nodeRows   = [];
+                $bindings   = [];
+                foreach ($this->data as $userId => $trafficData) {
+                    $nodeRows[] = '(?,?,?,?,?,?,?,?,?)';
+                    array_push($bindings,
+                        $userId, $serverId, $serverType,
+                        $trafficData[0], $trafficData[1],
+                        $rate, $recordAt, $now, $now
+                    );
+                }
+                if (!empty($nodeRows)) {
+                    DB::statement(
+                        'INSERT INTO v2_server_log
+                         (user_id, server_id, server_type, u, d, rate, log_at, created_at, updated_at)
+                         VALUES ' . implode(',', $nodeRows) . '
+                         ON DUPLICATE KEY UPDATE
+                         u = u + VALUES(u),
+                         d = d + VALUES(d),
+                         updated_at = VALUES(updated_at)',
+                        $bindings
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::error('v2_server_log write failed: ' . $e->getMessage());
             }
         }
     }
