@@ -14,8 +14,8 @@
                                             <div style="width:36px;height:36px;background:#dc2626;color:#ffffff;font-size:20px;line-height:36px;text-align:center;font-weight:600">⚠️</div>
                                         </td>
                                         <td style="padding-left:12px">
-                                            <div style="font-size:18px;font-weight:600;color:#18181b;line-height:1.3">订阅链接安全警告</div>
-                                            <div style="font-size:14px;color:#71717a;line-height:1.4;padding-top:2px">Subscription Security Alert</div>
+                                            <div style="font-size:18px;font-weight:600;color:#18181b;line-height:1.3">账户安全警告</div>
+                                            <div style="font-size:14px;color:#71717a;line-height:1.4;padding-top:2px">Account Security Alert</div>
                                         </td>
                                     </tr>
                                 </table>
@@ -29,7 +29,7 @@
                             <td style="padding:24px;font-size:15px;line-height:1.7;color:#27272a">
                                 尊敬的用户您好，
                                 <br /><br />
-                                我们检测到您的订阅链接可能存在共享或泄露风险。为了保护您的账户安全和服务质量，请立即采取措施。
+                                我们检测到您的账户存在异常活动，可能存在安全风险。为了保护您的账户安全，请立即采取措施。
                                 @if(!empty($content ?? ''))
                                 <br /><br />
                                 <div style="background:#fafafa;border:1px solid #e4e4e7;padding:16px">
@@ -47,13 +47,12 @@
                         <tr>
                             <td style="padding:0 24px 16px 24px">
                                 <div style="background:#fefce8;border:1px solid #fde047;padding:16px">
-                                    <div style="font-size:14px;font-weight:600;color:#18181b;padding-bottom:8px">⚠️ 重要提醒</div>
+                                    <div style="font-size:14px;font-weight:600;color:#18181b;padding-bottom:8px">⚠️ 安全提醒</div>
                                     <ul style="margin:0;padding:0 0 0 20px;font-size:14px;line-height:1.8;color:#52525b">
-                                        <li>请勿与他人共享您的订阅链接</li>
-                                        <li>请勿与他人共享您的账号密码</li>
-                                        <li>共享订阅、共享账号属于违规行为</li>
-                                        <li>多次违规会导致账号被封禁，且不可解封、不退款</li>
-                                        <li>请妥善保管您的账号信息，规范使用</li>
+                                        <li>请勿将账户信息分享给他人</li>
+                                        <li>请勿将账号密码告知任何人</li>
+                                        <li>账户信息泄露可能导致账号被封禁</li>
+                                        <li>请妥善保管您的个人账户信息</li>
                                     </ul>
                                 </div>
                             </td>
@@ -65,12 +64,12 @@
                         <tr>
                             <td style="padding:0 24px 24px 24px">
                                 <div style="background:#eff6ff;border:1px solid #bfdbfe;padding:16px">
-                                    <div style="font-size:14px;font-weight:600;color:#18181b;padding-bottom:8px">✓ 下一步操作</div>
+                                    <div style="font-size:14px;font-weight:600;color:#18181b;padding-bottom:8px">✓ 建议操作</div>
                                     <ol style="margin:0;padding:0 0 0 20px;font-size:14px;line-height:1.8;color:#52525b">
-                                        <li>登录您的账号</li>
-                                        <li>获取新的订阅链接</li>
-                                        <li>更新您所有客户端的订阅配置</li>
-                                        <li>如非本人操作，请立即修改密码</li>
+                                        <li>登录您的账户控制面板</li>
+                                        <li>重置您的账户访问链接</li>
+                                        <li>修改账户密码</li>
+                                        <li>如非本人操作，请立即联系客服</li>
                                     </ol>
                                 </div>
                             </td>
@@ -81,7 +80,7 @@
                     <table width="100%" border="0" cellspacing="0" cellpadding="0">
                         <tr>
                             <td align="center" style="padding:0 24px 24px 24px">
-                                <a href="{{$url}}" style="display:inline-block;background:#18181b;color:#ffffff;padding:11px 24px;text-decoration:none;font-size:14px;font-weight:500">立即登录系统</a>
+                                <a href="{{$url}}" style="display:inline-block;background:#18181b;color:#ffffff;padding:11px 24px;text-decoration:none;font-size:14px;font-weight:500">立即登录账户</a>
                             </td>
                         </tr>
                     </table>

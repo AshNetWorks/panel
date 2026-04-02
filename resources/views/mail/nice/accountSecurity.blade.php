@@ -29,7 +29,7 @@
                             <td style="padding:24px;font-size:15px;line-height:1.7;color:#27272a">
                                 尊敬的用户您好，
                                 <br /><br />
-                                我们的安全系统检测到您的账户配置链接存在异常访问模式。为了保护您的账户安全，请立即采取以下措施。
+                                我们的安全系统检测到您的账户存在异常活动。为了保护您的账户安全，请立即采取以下措施。
                                 @if(!empty($content ?? ''))
                                 <br /><br />
                                 <div style="background:#fafafa;border:1px solid #e4e4e7;padding:16px">
@@ -49,9 +49,9 @@
                                 <div style="background:#fefce8;border:1px solid #fde047;padding:16px">
                                     <div style="font-size:14px;font-weight:600;color:#18181b;padding-bottom:8px">💡 安全建议</div>
                                     <ul style="margin:0;padding:0 0 0 20px;font-size:14px;line-height:1.8;color:#52525b">
-                                        <li>请勿与他人分享您的配置链接</li>
-                                        <li>请勿与他人分享您的账户凭证</li>
-                                        <li>定期更新您的密码和配置信息</li>
+                                        <li>请勿与他人分享您的账户信息</li>
+                                        <li>请勿将账号密码告知任何人</li>
+                                        <li>定期更新您的密码以保障安全</li>
                                         <li>使用强密码保护您的账户</li>
                                         <li>妥善保管您的个人信息</li>
                                     </ul>
@@ -68,9 +68,9 @@
                                     <div style="font-size:14px;font-weight:600;color:#18181b;padding-bottom:8px">✓ 建议操作</div>
                                     <ol style="margin:0;padding:0 0 0 20px;font-size:14px;line-height:1.8;color:#52525b">
                                         <li>登录您的账户控制面板</li>
-                                        <li>重新生成新的配置链接</li>
-                                        <li>更新您的客户端配置</li>
-                                        <li>如非本人操作，请立即修改密码</li>
+                                        <li>重置您的账户访问链接</li>
+                                        <li>修改账户密码</li>
+                                        <li>如非本人操作，请立即联系客服</li>
                                     </ol>
                                 </div>
                             </td>
