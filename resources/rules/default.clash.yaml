@@ -43,15 +43,6 @@ dns:
       - '+.google.com'
       - '+.facebook.com'
       - '+.youtube.com'
-  nameserver-policy:
-    "geosite:cn":
-    - https://doh.pub/dns-query
-    - https://dns.alidns.com/dns-query
-    "geosite:private":
-    - https://doh.pub/dns-query
-    - https://dns.alidns.com/dns-query
-    "+.edg3.org":
-    - https://v.recipes/dns-cn
 
 proxies:
 
