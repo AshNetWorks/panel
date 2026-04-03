@@ -46,6 +46,19 @@ class PaymentController extends Controller
         $typeMap = [1 => '新购套餐', 2 => '续费套餐', 3 => '升级套餐'];
         $typeStr = $typeMap[$order->type] ?? '购买';
 
+        $periodMap = [
+            'month_price'      => '1个月',
+            'quarter_price'    => '3个月',
+            'half_year_price'  => '6个月',
+            'year_price'       => '1年',
+            'two_year_price'   => '2年',
+            'three_year_price' => '3年',
+            'onetime_price'    => '一次性',
+            'reset_price'      => '重置流量',
+            'deposit'          => '充值',
+        ];
+        $periodStr = $periodMap[$order->period] ?? ($order->period ?? '未知');
+
         $paidAmount    = number_format($order->total_amount / 100, 2);
         $balance       = $user ? number_format($user->balance / 100, 2) : '0.00';
         $commBalance   = $user ? number_format($user->commission_balance / 100, 2) : '0.00';
@@ -66,6 +79,7 @@ class PaymentController extends Controller
                    "新购套餐：{$planName}\n" .
                    "用户邮箱：{$email}\n" .
                    "购买类型：{$typeStr}\n" .
+                   "购买周期：{$periodStr}\n" .
                    "———————————————\n" .
                    "余额/佣金余额：{$balance} / {$commBalance}\n" .
                    "到期时间：{$expiredAt}" .
