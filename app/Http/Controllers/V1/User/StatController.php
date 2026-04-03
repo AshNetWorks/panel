@@ -17,6 +17,7 @@ use App\Models\StatUser;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 
 class StatController extends Controller
 {
@@ -244,5 +245,54 @@ class StatController extends Controller
             }
         }
         return $nameMap;
+    }
+
+    public function getSubSecurity(Request $request)
+    {
+        $userId  = $request->user['id'];
+        $enabled = (bool)(int)config('v2board.sub_ip_limit_enable', 0);
+
+        $limits = [
+            'ip_count'       => (int)config('v2board.sub_ip_limit_count', 10),
+            'rate_per_minute'=> (int)config('v2board.sub_rate_limit_count', 10),
+            'ban_hours'      => (int)config('v2board.sub_ip_limit_ban_hours', 24),
+        ];
+
+        // 封禁状态
+        $banKey     = 'sub:banned:' . $userId;
+        $banned     = (bool)Redis::exists($banKey);
+        $banTtl     = $banned ? (int)Redis::ttl($banKey) : 0;
+        $banRemainingHours = $banTtl > 0 ? ceil($banTtl / 3600) : 0;
+
+        // 24小时内独立IP数（滑动窗口）
+        $ipKey  = 'sub:ips:' . $userId;
+        $now    = time();
+        Redis::zremrangebyscore($ipKey, 0, $now - 86400);
+        $ipCount = (int)Redis::zcard($ipKey);
+
+        // 24小时拉取次数 & 近1小时拉取次数（查日志表）
+        $pull24h = DB::table('v2_subscribe_pull_log')
+            ->where('user_id', $userId)
+            ->where('created_at', '>=', now()->subHours(24))
+            ->count();
+
+        $pull1h = DB::table('v2_subscribe_pull_log')
+            ->where('user_id', $userId)
+            ->where('created_at', '>=', now()->subHour())
+            ->count();
+
+        return response([
+            'data' => [
+                'enabled'             => $enabled,
+                'limits'              => $limits,
+                'current'             => [
+                    'ip_count' => $ipCount,
+                    'pull_24h' => $pull24h,
+                    'pull_1h'  => $pull1h,
+                ],
+                'banned'              => $banned,
+                'ban_remaining_hours' => $banRemainingHours,
+            ]
+        ]);
     }
 }

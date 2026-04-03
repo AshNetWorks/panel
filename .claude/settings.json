@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -r \"v2_stat_user\\\\|v2_server_log\" /Users/nice/old/备份/ash/panel.333444.best_20260315_124350/app --include=*.php -l)"
+      "Bash(grep -r \"v2_stat_user\\\\|v2_server_log\" /Users/nice/old/备份/ash/panel.333444.best_20260315_124350/app --include=*.php -l)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(xargs ls:*)"
     ]
   }
 }
