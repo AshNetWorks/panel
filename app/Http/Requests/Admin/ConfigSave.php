@@ -53,6 +53,10 @@ class ConfigSave extends FormRequest
         'show_info_to_server_enable' => 'in:0,1',
         'show_subscribe_method' => 'in:0,1,2',
         'show_subscribe_expire' => 'nullable|integer',
+        'sub_ip_limit_enable' => 'in:0,1',
+        'sub_ip_limit_count' => 'nullable|integer|min:1',
+        'sub_ip_limit_ban_hours' => 'nullable|integer|min:1',
+        'sub_rate_limit_count' => 'nullable|integer|min:1',
         // server
         'server_api_url' => 'nullable|string',
         'server_token' => 'nullable|min:16',

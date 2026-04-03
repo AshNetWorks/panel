@@ -116,6 +116,10 @@ class ConfigController extends Controller
                 'show_info_to_server_enable' => (int)config('v2board.show_info_to_server_enable', 0),
                 'show_subscribe_method' => (int)config('v2board.show_subscribe_method', 0),
                 'show_subscribe_expire' => (int)config('v2board.show_subscribe_expire', 5),
+                'sub_ip_limit_enable' => (int)config('v2board.sub_ip_limit_enable', 0),
+                'sub_ip_limit_count' => (int)config('v2board.sub_ip_limit_count', 10),
+                'sub_ip_limit_ban_hours' => (int)config('v2board.sub_ip_limit_ban_hours', 24),
+                'sub_rate_limit_count' => (int)config('v2board.sub_rate_limit_count', 10),
             ],
             'frontend' => [
                 'frontend_theme' => config('v2board.frontend_theme', 'v2board'),

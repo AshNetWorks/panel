@@ -12,7 +12,9 @@ use App\Utils\Helper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use App\Jobs\SendTelegramJob;
+use App\Services\TelegramService;
 use Carbon\Carbon;
 
 class ClientController extends Controller
@@ -91,6 +93,11 @@ class ClientController extends Controller
         $userService = new UserService();
         if (!$userService->isAvailable($user)) {
             return;
+        }
+
+        // ✅ 订阅IP多样性与频率限制（仅暂停订阅更新，不影响节点使用）
+        if ($this->checkSubIpRateLimit($user, $ip)) {
+            abort(429);
         }
 
         // 上报开始，为方便跨机场查询请勿更改 hash 加密
@@ -282,6 +289,79 @@ class ClientController extends Controller
         }
 
         return $this->buildSubscription($request, $user, $flag);
+    }
+
+    /**
+     * ✅ 订阅IP多样性与每分钟频率限制检测
+     * 返回 true 表示触发限制，应拦截本次订阅拉取（abort 429）
+     */
+    private function checkSubIpRateLimit($user, string $ip): bool
+    {
+        if (!(int)config('v2board.sub_ip_limit_enable', 0)) return false;
+        if ($user->is_admin) return false;
+
+        $maxIps     = max(1, (int)config('v2board.sub_ip_limit_count', 10));
+        $banHours   = max(1, (int)config('v2board.sub_ip_limit_ban_hours', 24));
+        $maxPerMin  = max(1, (int)config('v2board.sub_rate_limit_count', 10));
+        $banSeconds = $banHours * 3600;
+        $banKey     = 'sub:banned:' . $user->id;
+
+        // 已被封禁，直接拦截（不重复通知）
+        if (Redis::exists($banKey)) return true;
+
+        // ① 每分钟频率限制
+        $rateKey   = 'sub:rate:' . $user->id;
+        $rateCount = Redis::incr($rateKey);
+        if ($rateCount === 1) Redis::expire($rateKey, 60);
+
+        if ($rateCount > $maxPerMin) {
+            Redis::setex($banKey, $banSeconds, 'rate');
+            $this->notifyAdminSubBan($user, 'rate', $rateCount, $banHours);
+            return true;
+        }
+
+        // ② 24小时内不同IP数量限制（滑动窗口）
+        $ipKey = 'sub:ips:' . $user->id;
+        $now   = time();
+        Redis::zadd($ipKey, $now, $ip);
+        Redis::zremrangebyscore($ipKey, 0, $now - 86400);
+        Redis::expire($ipKey, 86400);
+        $ipCount = Redis::zcard($ipKey);
+
+        if ($ipCount > $maxIps) {
+            Redis::setex($banKey, $banSeconds, 'ip');
+            $this->notifyAdminSubBan($user, 'ip', $ipCount, $banHours);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * ✅ 订阅限制触发时通知管理员（TG）
+     */
+    private function notifyAdminSubBan($user, string $type, int $count, int $banHours): void
+    {
+        if (!config('v2board.telegram_bot_enable', 0)) return;
+        try {
+            $now = date('Y-m-d H:i:s');
+            if ($type === 'rate') {
+                $message = "🚫 订阅频率超限，已暂停更新\n" .
+                           "用户：{$user->email}\n" .
+                           "触发：每分钟拉取 {$count} 次（超出限制）\n" .
+                           "暂停时长：{$banHours} 小时\n" .
+                           "时间：{$now}";
+            } else {
+                $message = "🚫 订阅IP超限，已暂停更新\n" .
+                           "用户：{$user->email}\n" .
+                           "触发：24小时内不同IP {$count} 个（超出限制）\n" .
+                           "暂停时长：{$banHours} 小时\n" .
+                           "时间：{$now}";
+            }
+            (new TelegramService())->sendMessageWithAdmin($message);
+        } catch (\Throwable $e) {
+            Log::error('Sub ban TG notify failed: ' . $e->getMessage());
+        }
     }
 
     private function buildSubscription(Request $request, $user, string $flag)
