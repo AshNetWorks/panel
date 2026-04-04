@@ -263,6 +263,7 @@ class StatController extends Controller
         $banned     = (bool)Redis::exists($banKey);
         $banTtl     = $banned ? (int)Redis::ttl($banKey) : 0;
         $banRemainingHours = $banTtl > 0 ? ceil($banTtl / 3600) : 0;
+        $banType    = $banned ? (string)Redis::get($banKey) : null; // 'rate' 或 'ip'
 
         // 24小时拉取次数、独立IP数、近1小时拉取次数（均从日志表查询，数据准确）
         $since24h = now()->subHours(24);
@@ -297,6 +298,7 @@ class StatController extends Controller
                     'pull_1h'  => $pull1h,
                 ],
                 'banned'              => $banned,
+                'ban_type'            => $banType,
                 'ban_remaining_hours' => $banRemainingHours,
                 'unban'               => $unban,
             ]
