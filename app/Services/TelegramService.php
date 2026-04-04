@@ -36,6 +36,29 @@ class TelegramService {
         return $this->request('sendMessage', $params);
     }
 
+    public function answerCallbackQuery(string $callbackQueryId, string $text = '', bool $showAlert = false)
+    {
+        return $this->request('answerCallbackQuery', [
+            'callback_query_id' => $callbackQueryId,
+            'text'              => $text,
+            'show_alert'        => $showAlert,
+        ]);
+    }
+
+    public function editMessageText(int $chatId, int $messageId, string $text, string $parseMode = '', array $replyMarkup = [])
+    {
+        $params = [
+            'chat_id'    => $chatId,
+            'message_id' => $messageId,
+            'text'       => $text,
+            'parse_mode' => $parseMode,
+        ];
+        if (!empty($replyMarkup)) {
+            $params['reply_markup'] = json_encode($replyMarkup);
+        }
+        return $this->request('editMessageText', $params);
+    }
+
     public function deleteMessage(int $chatId, int $messageId)
     {
         return $this->request('deleteMessage', [

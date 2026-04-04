@@ -40,6 +40,9 @@ class TelegramController extends Controller
             // 处理关键词自动回复（必须在命令处理之前）
             $this->handleKeywordAutoReply($data);
 
+            // 处理 inline button 回调
+            $this->handleCallbackQuery($data);
+
             // 处理普通消息和命令
             $this->formatMessage($data);
             $this->formatChatJoinRequest($data);
@@ -692,6 +695,83 @@ EOT;
 
             'emby' => "🎬 *Emby 媒体服务*\n\n客户端、教程、图标都在下面\n请根据自己的需求选择客户端\n\n⚠️ *重要提示：*\n仅支持官方客户端及以下第三方客户端：femor、SenPlayer、Hills、HamHub、Conflux、Lenna、Filebar、Forward、Infuse（直连模式）、dscloud、Terminus Player、Tsukimi、Xfuse、Yamby、RodelPlayer、EplayerX\n\n🌍 *IP 限制说明：*\n中国、日本、美国以外的 IP 登录不受限制\n机场用户可使用日本、美国节点正常观看",
         ];
+    }
+
+    /**
+     * 处理 inline button 回调（callback_query）
+     */
+    private function handleCallbackQuery(array $data): void
+    {
+        if (!isset($data['callback_query'])) return;
+
+        $cq         = $data['callback_query'];
+        $cqId       = $cq['id'];
+        $fromId     = $cq['from']['id'] ?? null;
+        $chatId     = $cq['message']['chat']['id'] ?? null;
+        $messageId  = $cq['message']['message_id'] ?? null;
+        $callbackData = $cq['data'] ?? '';
+
+        if (!$fromId || !$chatId || !$messageId) return;
+
+        // 只处理 sub_unban: 前缀的回调
+        if (strpos($callbackData, 'sub_unban:') !== 0) return;
+
+        // 格式：sub_unban:{confirm|cancel}:{targetUserId}
+        $parts = explode(':', $callbackData);
+        if (count($parts) !== 3) return;
+
+        [, $action, $targetUserId] = $parts;
+        $targetUserId = (int)$targetUserId;
+
+        // 验证操作者是系统管理员
+        $operator = \App\Models\User::where('telegram_id', $fromId)->where('is_admin', 1)->first();
+        if (!$operator) {
+            $this->telegramService->answerCallbackQuery($cqId, '❌ 权限不足', true);
+            return;
+        }
+
+        $targetUser = \App\Models\User::find($targetUserId);
+        if (!$targetUser) {
+            $this->telegramService->answerCallbackQuery($cqId, '❌ 用户不存在', true);
+            $this->telegramService->editMessageText($chatId, $messageId, '❌ 用户不存在，操作取消');
+            return;
+        }
+
+        $banKey = 'sub:banned:' . $targetUserId;
+
+        if ($action === 'confirm') {
+            \Illuminate\Support\Facades\Redis::del($banKey);
+
+            \Illuminate\Support\Facades\DB::table('v2_subscribe_unban_log')->insert([
+                'user_id'    => $targetUserId,
+                'created_at' => now(),
+            ]);
+
+            $this->telegramService->answerCallbackQuery($cqId, '✅ 已解除封禁');
+            $this->telegramService->editMessageText(
+                $chatId, $messageId,
+                "✅ 已解除 {$targetUser->email} 的订阅封禁\n操作人：{$operator->email}",
+                'html'
+            );
+
+            // 通知被解封用户
+            if ($targetUser->telegram_id) {
+                try {
+                    \App\Jobs\SendTelegramJob::dispatch(
+                        $targetUser->telegram_id,
+                        "✅ 您的订阅封禁已由管理员手动解除，现在可以正常拉取订阅了。"
+                    );
+                } catch (\Throwable) {}
+            }
+
+        } elseif ($action === 'cancel') {
+            $this->telegramService->answerCallbackQuery($cqId, '已取消');
+            $this->telegramService->editMessageText(
+                $chatId, $messageId,
+                "🚫 已取消解封操作\n用户：{$targetUser->email}",
+                'html'
+            );
+        }
     }
 
     /**
