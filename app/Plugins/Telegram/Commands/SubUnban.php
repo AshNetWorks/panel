@@ -117,28 +117,18 @@ class SubUnban extends Telegram
             ->where('user_id', $user->id)
             ->count();
 
-        $text  = "🔍 <b>订阅封禁详情</b>\n";
-        $text .= "━━━━━━━━━━━━━━━\n";
-        $text .= "👤 用户：<code>{$user->email}</code>\n";
-        $text .= "🆔 用户ID：{$user->id}\n";
-        $text .= "🚫 封禁原因：{$banReason}\n";
-        $text .= "⏳ 剩余时长：{$banRemain}\n";
-        $text .= "🔓 历史解封次数：{$unbanCount} 次\n";
-        $text .= "━━━━━━━━━━━━━━━\n";
-        $text .= "📊 <b>24小时拉取统计</b>\n";
-        $text .= "• 拉取总次数：{$pull24h} 次\n";
-        $text .= "• 不同IP数：{$ipCount} 个\n";
-
-        if ($logs->isNotEmpty()) {
-            $text .= "\n🕐 <b>最近10条记录：</b>\n";
-            foreach ($logs as $log) {
-                $time     = date('H:i:s', strtotime($log->created_at));
-                $location = trim(($log->city ?? '') . ' ' . ($log->country ?? ''));
-                $text .= "• {$time}｜{$log->ip}｜{$log->os}/{$log->device}";
-                if ($location) $text .= "｜{$location}";
-                $text .= "\n";
-            }
-        }
+        // 第一条：概要 + 操作按钮
+        $summary  = "🔍 <b>订阅封禁详情</b>\n";
+        $summary .= "━━━━━━━━━━━━━━━\n";
+        $summary .= "👤 用户：<code>{$user->email}</code>\n";
+        $summary .= "🆔 用户ID：{$user->id}\n";
+        $summary .= "🚫 封禁原因：{$banReason}\n";
+        $summary .= "⏳ 剩余时长：{$banRemain}\n";
+        $summary .= "🔓 历史解封次数：{$unbanCount} 次\n";
+        $summary .= "━━━━━━━━━━━━━━━\n";
+        $summary .= "📊 <b>24小时拉取统计</b>\n";
+        $summary .= "• 拉取总次数：{$pull24h} 次\n";
+        $summary .= "• 不同IP数：{$ipCount} 个";
 
         $buttons = [
             'inline_keyboard' => [[
@@ -147,7 +137,46 @@ class SubUnban extends Telegram
             ]]
         ];
 
-        $this->telegramService->sendMessage($chatId, $text, 'html', $buttons);
+        $this->telegramService->sendMessage($chatId, $summary, 'html', $buttons);
+
+        // 第二条起：拉取日志（按 4000 字符分片发送）
+        if ($logs->isNotEmpty()) {
+            $lines = [];
+            foreach ($logs as $log) {
+                $time     = date('H:i:s', strtotime($log->created_at));
+                $location = trim(($log->city ?? '') . ' ' . ($log->country ?? ''));
+                $line = "• {$time}｜{$log->ip}｜{$log->os}/{$log->device}";
+                if ($location) $line .= "｜{$location}";
+                $lines[] = $line;
+            }
+
+            $this->sendChunked($chatId, "🕐 <b>最近拉取记录：</b>\n" . implode("\n", $lines), 'html');
+        }
+    }
+
+    private function sendChunked(int $chatId, string $text, string $parseMode = '', int $limit = 4000): void
+    {
+        if (mb_strlen($text) <= $limit) {
+            $this->telegramService->sendMessage($chatId, $text, $parseMode);
+            return;
+        }
+
+        $lines   = explode("\n", $text);
+        $chunk   = '';
+
+        foreach ($lines as $line) {
+            $candidate = $chunk === '' ? $line : $chunk . "\n" . $line;
+            if (mb_strlen($candidate) > $limit) {
+                $this->telegramService->sendMessage($chatId, $chunk, $parseMode);
+                $chunk = $line;
+            } else {
+                $chunk = $candidate;
+            }
+        }
+
+        if ($chunk !== '') {
+            $this->telegramService->sendMessage($chatId, $chunk, $parseMode);
+        }
     }
 
     private function isSystemAdmin(int $telegramId): bool
