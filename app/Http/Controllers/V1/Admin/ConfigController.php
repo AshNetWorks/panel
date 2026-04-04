@@ -192,6 +192,53 @@ class ConfigController extends Controller
         ]);
     }
 
+    public function fetchSubLimit()
+    {
+        return response([
+            'data' => [
+                'sub_ip_limit_enable'    => (int)config('v2board.sub_ip_limit_enable', 0),
+                'sub_ip_limit_count'     => (int)config('v2board.sub_ip_limit_count', 10),
+                'sub_ip_limit_ban_hours' => (int)config('v2board.sub_ip_limit_ban_hours', 24),
+                'sub_rate_limit_count'   => (int)config('v2board.sub_rate_limit_count', 10),
+                'sub_unban_interval_days'=> (int)config('v2board.sub_unban_interval_days', 3),
+                'sub_unban_max_count'    => (int)config('v2board.sub_unban_max_count', 3),
+            ]
+        ]);
+    }
+
+    public function saveSubLimit(Request $request)
+    {
+        $keys = [
+            'sub_ip_limit_enable', 'sub_ip_limit_count',
+            'sub_ip_limit_ban_hours', 'sub_rate_limit_count',
+            'sub_unban_interval_days', 'sub_unban_max_count',
+        ];
+
+        $config = config('v2board');
+        foreach ($keys as $key) {
+            if (!$request->has($key)) continue;
+            $val = $request->input($key);
+            // 前端 switch 类型发送布尔值，统一转为 0/1 整型
+            $config[$key] = is_bool($val) ? (int)$val : $val;
+        }
+
+        if (!File::put(base_path() . '/config/v2board.php', "<?php\n return " . var_export($config, true) . " ;")) {
+            abort(500, '保存失败');
+        }
+        if (function_exists('opcache_reset')) {
+            opcache_reset();
+        }
+        Artisan::call('config:cache');
+
+        if (Cache::has('WEBMANPID')) {
+            $pid = Cache::get('WEBMANPID');
+            Cache::forget('WEBMANPID');
+            return response(['data' => posix_kill($pid, 15)]);
+        }
+
+        return response(['data' => true]);
+    }
+
     public function save(ConfigSave $request)
     {
         $data = $request->validated();

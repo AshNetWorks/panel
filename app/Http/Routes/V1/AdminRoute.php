@@ -14,6 +14,8 @@ class AdminRoute
             // Config
             $router->get ('/config/fetch', 'V1\\Admin\\ConfigController@fetch');
             $router->post('/config/save', 'V1\\Admin\\ConfigController@save');
+            $router->get ('/config/fetchSubLimit', 'V1\\Admin\\ConfigController@fetchSubLimit');
+            $router->post('/config/saveSubLimit',  'V1\\Admin\\ConfigController@saveSubLimit');
             $router->get ('/config/getEmailTemplate', 'V1\\Admin\\ConfigController@getEmailTemplate');
             $router->get ('/config/getThemeTemplate', 'V1\\Admin\\ConfigController@getThemeTemplate');
             $router->post('/config/setTelegramWebhook', 'V1\\Admin\\ConfigController@setTelegramWebhook');
