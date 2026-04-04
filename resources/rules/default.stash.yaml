@@ -419,6 +419,9 @@ proxy-groups:
 
 #==================== 分割 ====================#
 rules:
+# > 订阅直连
+  - DOMAIN-SUFFIX,kejalrn7ffb572qu0jeb.671234.xyz,DIRECT
+  - DOMAIN-SUFFIX,kejalrn7ffb572qu0jeb.fznfzn.cn,DIRECT
 # > Emby
   - RULE-SET,Emby-directrp,DIRECT
   - RULE-SET,Emby-proxyrp,Emby

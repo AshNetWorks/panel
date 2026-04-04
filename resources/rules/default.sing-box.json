@@ -93,6 +93,14 @@
                 "action": "hijack-dns"
             },
             {
+                "domain_suffix": [
+                    "kejalrn7ffb572qu0jeb.671234.xyz",
+                    "kejalrn7ffb572qu0jeb.fznfzn.cn"
+                ],
+                "action": "route",
+                "outbound": "DIRECT"
+            },
+            {
                 "rule_set": [
                     "category-ads-all"
                 ],

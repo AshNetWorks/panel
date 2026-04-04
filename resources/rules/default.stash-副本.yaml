@@ -55,6 +55,8 @@ proxy-groups:
 rules:
   # 自定义规则
   ## 您可以在此处插入您补充的自定义规则（请注意保持缩进）
+  - DOMAIN-SUFFIX,kejalrn7ffb572qu0jeb.671234.xyz,DIRECT
+  - DOMAIN-SUFFIX,kejalrn7ffb572qu0jeb.fznfzn.cn,DIRECT
   - IP-CIDR,1.1.1.1/32,$app_name,no-resolve
   - IP-CIDR,8.8.8.8/32,$app_name,no-resolve
   # Google 中国服务
