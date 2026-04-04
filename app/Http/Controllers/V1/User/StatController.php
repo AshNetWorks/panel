@@ -266,17 +266,22 @@ class StatController extends Controller
         $banType    = $banned ? (string)Redis::get($banKey) : null; // 'rate' 或 'ip'
 
         // 24小时拉取次数、独立IP数、近1小时拉取次数（均从日志表查询，数据准确）
-        $since24h = now()->subHours(24);
-        $since1h  = now()->subHour();
+        // 统计窗口取「24小时前」与「最后解封时间」中较新的那个，与封禁判断逻辑保持一致
+        $since24h  = now()->subHours(24);
+        $since1h   = now()->subHour();
+        $lastUnban = DB::table('v2_subscribe_unban_log')
+            ->where('user_id', $userId)
+            ->max('created_at');
+        $sinceTime = $lastUnban ? max(\Carbon\Carbon::parse($lastUnban), $since24h) : $since24h;
 
         $pull24h = DB::table('v2_subscribe_pull_log')
             ->where('user_id', $userId)
-            ->where('created_at', '>=', $since24h)
+            ->where('created_at', '>=', $sinceTime)
             ->count();
 
         $ipCount = DB::table('v2_subscribe_pull_log')
             ->where('user_id', $userId)
-            ->where('created_at', '>=', $since24h)
+            ->where('created_at', '>=', $sinceTime)
             ->distinct('ip')
             ->count('ip');
 
@@ -324,12 +329,9 @@ class StatController extends Controller
             abort(429, "冷却中，请 {$eligibility['cooldown_hours']} 小时后再试");
         }
 
-        // 执行解封：删除 ban key + 清空 24h 拉取日志（避免解封后立即重新触发封禁）
+        // 执行解封：仅删除 ban key，拉取日志保留用于审计
+        // 解封记录写入后，统计窗口会自动从解封时间起算，不会立即再次触发封禁
         Redis::del($banKey);
-        DB::table('v2_subscribe_pull_log')
-            ->where('user_id', $userId)
-            ->where('created_at', '>=', now()->subHours(24))
-            ->delete();
 
         DB::table('v2_subscribe_unban_log')->insert([
             'user_id'    => $userId,

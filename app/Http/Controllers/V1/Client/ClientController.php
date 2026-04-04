@@ -322,17 +322,23 @@ class ClientController extends Controller
 
         // ② 24小时内不同IP数量限制（从日志表查，与前端显示一致）
         // 注意：当前请求日志尚未写入，若是新IP需手动+1
-        $since24h  = \Carbon\Carbon::now()->subHours(24);
+        // 统计窗口取「24小时前」与「最后解封时间」中较新的那个，保证解封后不会立即再封
+        $since24h   = \Carbon\Carbon::now()->subHours(24);
+        $lastUnban  = DB::table('v2_subscribe_unban_log')
+            ->where('user_id', $user->id)
+            ->max('created_at');
+        $sinceTime  = $lastUnban ? max(\Carbon\Carbon::parse($lastUnban), $since24h) : $since24h;
+
         $dbIpCount = DB::table('v2_subscribe_pull_log')
             ->where('user_id', $user->id)
-            ->where('created_at', '>=', $since24h)
+            ->where('created_at', '>=', $sinceTime)
             ->distinct('ip')
             ->count('ip');
 
         $isNewIp = !DB::table('v2_subscribe_pull_log')
             ->where('user_id', $user->id)
             ->where('ip', $ip)
-            ->where('created_at', '>=', $since24h)
+            ->where('created_at', '>=', $sinceTime)
             ->exists();
 
         $ipCount = $dbIpCount + ($isNewIp ? 1 : 0);

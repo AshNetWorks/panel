@@ -741,10 +741,6 @@ EOT;
 
         if ($action === 'confirm') {
             \Illuminate\Support\Facades\Redis::del($banKey);
-            \Illuminate\Support\Facades\DB::table('v2_subscribe_pull_log')
-                ->where('user_id', $targetUserId)
-                ->where('created_at', '>=', now()->subHours(24))
-                ->delete();
 
             \Illuminate\Support\Facades\DB::table('v2_subscribe_unban_log')->insert([
                 'user_id'    => $targetUserId,
