@@ -129,6 +129,7 @@ class TelegramService {
                 'url' => $url,
                 'allowed_updates' => json_encode([
                     'message',
+                    'callback_query',
                     'chat_join_request',
                     'my_chat_member',
                     'chat_member'
