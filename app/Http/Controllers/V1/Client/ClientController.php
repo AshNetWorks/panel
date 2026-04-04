@@ -355,9 +355,13 @@ class ClientController extends Controller
         $appName = config('v2board.app_name', 'V2Board');
         $appUrl  = config('v2board.app_url', '');
 
+        $tgUid = $user->telegram_id ? (string)$user->telegram_id : '未绑定';
+
         if ($type === 'rate') {
             $adminMsg = "🚫 订阅频率超限，已暂停更新\n" .
                         "用户：{$user->email}\n" .
+                        "用户ID：{$user->id}\n" .
+                        "TG UID：{$tgUid}\n" .
                         "触发：每分钟拉取 {$count} 次（超出限制）\n" .
                         "暂停时长：{$banHours} 小时\n" .
                         "时间：{$now}";
@@ -372,6 +376,8 @@ class ClientController extends Controller
         } else {
             $adminMsg = "🚫 订阅IP超限，已暂停更新\n" .
                         "用户：{$user->email}\n" .
+                        "用户ID：{$user->id}\n" .
+                        "TG UID：{$tgUid}\n" .
                         "触发：24小时内不同IP {$count} 个（超出限制）\n" .
                         "暂停时长：{$banHours} 小时\n" .
                         "时间：{$now}";
