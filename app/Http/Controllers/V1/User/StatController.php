@@ -324,8 +324,12 @@ class StatController extends Controller
             abort(429, "冷却中，请 {$eligibility['cooldown_hours']} 小时后再试");
         }
 
-        // 执行解封
+        // 执行解封：删除 ban key + 清空 24h 拉取日志（避免解封后立即重新触发封禁）
         Redis::del($banKey);
+        DB::table('v2_subscribe_pull_log')
+            ->where('user_id', $userId)
+            ->where('created_at', '>=', now()->subHours(24))
+            ->delete();
 
         DB::table('v2_subscribe_unban_log')->insert([
             'user_id'    => $userId,
