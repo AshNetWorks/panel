@@ -284,6 +284,9 @@ class StatController extends Controller
             ->where('created_at', '>=', $since1h)
             ->count();
 
+        // 解封资格信息
+        $unban = $this->getUnbanEligibility($userId);
+
         return response([
             'data' => [
                 'enabled'             => $enabled,
@@ -295,7 +298,99 @@ class StatController extends Controller
                 ],
                 'banned'              => $banned,
                 'ban_remaining_hours' => $banRemainingHours,
+                'unban'               => $unban,
             ]
         ]);
+    }
+
+    public function requestUnban(Request $request)
+    {
+        $userId = $request->user['id'];
+        $banKey = 'sub:banned:' . $userId;
+
+        if (!Redis::exists($banKey)) {
+            abort(400, '当前未处于封禁状态');
+        }
+
+        $eligibility = $this->getUnbanEligibility($userId);
+
+        if ($eligibility['needs_manual_review']) {
+            abort(403, '申请次数过多，请联系客服处理');
+        }
+
+        if (!$eligibility['can_request']) {
+            abort(429, "冷却中，请 {$eligibility['cooldown_hours']} 小时后再试");
+        }
+
+        // 执行解封
+        Redis::del($banKey);
+
+        DB::table('v2_subscribe_unban_log')->insert([
+            'user_id'    => $userId,
+            'created_at' => now(),
+        ]);
+
+        // TG 通知管理员
+        if (config('v2board.telegram_bot_enable', 0)) {
+            try {
+                $user  = \App\Models\User::find($userId);
+                $email = $user ? $user->email : "uid:{$userId}";
+                (new \App\Services\TelegramService())->sendMessageWithAdmin(
+                    "🔓 用户自助解封订阅限制\n用户：{$email}\n时间：" . date('Y-m-d H:i:s')
+                );
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('Unban TG notify failed: ' . $e->getMessage());
+            }
+        }
+
+        return response(['data' => true]);
+    }
+
+    private function getUnbanEligibility(int $userId): array
+    {
+        $intervalDays = max(1, (int)config('v2board.sub_unban_interval_days', 3));
+        $maxCount     = max(1, (int)config('v2board.sub_unban_max_count', 3));
+
+        $totalCount = DB::table('v2_subscribe_unban_log')
+            ->where('user_id', $userId)
+            ->count();
+
+        if ($totalCount >= $maxCount) {
+            return [
+                'can_request'         => false,
+                'needs_manual_review' => true,
+                'cooldown_hours'      => 0,
+                'requests_used'       => $totalCount,
+                'requests_max'        => $maxCount,
+                'next_available_at'   => null,
+            ];
+        }
+
+        $last = DB::table('v2_subscribe_unban_log')
+            ->where('user_id', $userId)
+            ->orderBy('created_at', 'desc')
+            ->value('created_at');
+
+        $cooldownHours    = 0;
+        $nextAvailableAt  = null;
+        $canRequest       = true;
+
+        if ($last) {
+            $nextAvailable = \Carbon\Carbon::parse($last)->addDays($intervalDays);
+            if (now()->lt($nextAvailable)) {
+                $canRequest      = false;
+                $cooldownHours   = (int)now()->diffInHours($nextAvailable, false) + 1;
+                $nextAvailableAt = $nextAvailable->toDateTimeString();
+            }
+        }
+
+        return [
+            'can_request'         => $canRequest,
+            'needs_manual_review' => false,
+            'cooldown_hours'      => $cooldownHours,
+            'requests_used'       => $totalCount,
+            'requests_max'        => $maxCount,
+            'next_available_at'   => $nextAvailableAt,
+        ];
     }
 }

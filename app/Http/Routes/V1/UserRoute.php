@@ -64,7 +64,8 @@ class UserRoute
             // Stat
             $router->get ('/stat/getTrafficLog',     'V1\\User\\StatController@getTrafficLog');
             $router->get ('/stat/getNodeTrafficLog', 'V1\\User\\StatController@getNodeTrafficLog');
-            $router->get ('/stat/getSubSecurity',    'V1\\User\\StatController@getSubSecurity');
+            $router->get  ('/stat/getSubSecurity',    'V1\\User\\StatController@getSubSecurity');
+            $router->post ('/stat/requestUnban',      'V1\\User\\StatController@requestUnban');
             // Subscribe Log
             $router->get('/subscribeLog/fetch', 'V1\\User\\SubscribeLogController@fetch');
             $router->get('/subscribeLog/statistics', 'V1\\User\\SubscribeLogController@statistics');

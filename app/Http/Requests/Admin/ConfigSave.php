@@ -57,6 +57,8 @@ class ConfigSave extends FormRequest
         'sub_ip_limit_count' => 'nullable|integer|min:1',
         'sub_ip_limit_ban_hours' => 'nullable|integer|min:1',
         'sub_rate_limit_count' => 'nullable|integer|min:1',
+        'sub_unban_interval_days' => 'nullable|integer|min:1',
+        'sub_unban_max_count' => 'nullable|integer|min:1',
         // server
         'server_api_url' => 'nullable|string',
         'server_token' => 'nullable|min:16',

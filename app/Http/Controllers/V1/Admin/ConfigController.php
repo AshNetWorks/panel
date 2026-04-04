@@ -120,6 +120,8 @@ class ConfigController extends Controller
                 'sub_ip_limit_count' => (int)config('v2board.sub_ip_limit_count', 10),
                 'sub_ip_limit_ban_hours' => (int)config('v2board.sub_ip_limit_ban_hours', 24),
                 'sub_rate_limit_count' => (int)config('v2board.sub_rate_limit_count', 10),
+                'sub_unban_interval_days' => (int)config('v2board.sub_unban_interval_days', 3),
+                'sub_unban_max_count' => (int)config('v2board.sub_unban_max_count', 3),
             ],
             'frontend' => [
                 'frontend_theme' => config('v2board.frontend_theme', 'v2board'),
