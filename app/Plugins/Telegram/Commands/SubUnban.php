@@ -46,20 +46,29 @@ class SubUnban extends Telegram
             $this->telegramService->sendMessage(
                 $chatId,
                 "📖 <b>用法：</b>\n\n"
-                . "<code>/subunban [邮箱]</code>    — 按邮箱查询\n"
-                . "<code>/subunban [用户ID]</code>  — 按网站用户ID查询\n\n"
+                . "<code>/subunban [邮箱]</code>       — 按邮箱查询\n"
+                . "<code>/subunban [用户ID]</code>     — 按网站用户ID查询\n"
+                . "<code>/subunban tg:[TG UID]</code>  — 按 Telegram UID 查询\n\n"
                 . "示例：\n"
                 . "<code>/subunban user@example.com</code>\n"
-                . "<code>/subunban 1733</code>",
+                . "<code>/subunban 1733</code>\n"
+                . "<code>/subunban tg:6878406068</code>",
                 'html'
             );
             return;
         }
 
         $input = trim($args[0]);
-        $user  = is_numeric($input)
-            ? User::find((int)$input)
-            : User::where('email', $input)->first();
+        $user  = null;
+
+        if (strpos($input, 'tg:') === 0) {
+            $tgId = (int)substr($input, 3);
+            $user = User::where('telegram_id', $tgId)->first();
+        } elseif (is_numeric($input)) {
+            $user = User::find((int)$input);
+        } else {
+            $user = User::where('email', $input)->first();
+        }
 
         if (!$user) {
             $this->telegramService->sendMessage($chatId, "❌ 未找到用户：" . htmlspecialchars($input), 'html');
