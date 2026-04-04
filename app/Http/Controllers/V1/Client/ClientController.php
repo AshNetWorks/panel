@@ -320,13 +320,22 @@ class ClientController extends Controller
             return true;
         }
 
-        // ② 24小时内不同IP数量限制（滑动窗口）
-        $ipKey = 'sub:ips:' . $user->id;
-        $now   = time();
-        Redis::zadd($ipKey, $now, $ip);
-        Redis::zremrangebyscore($ipKey, 0, $now - 86400);
-        Redis::expire($ipKey, 86400);
-        $ipCount = Redis::zcard($ipKey);
+        // ② 24小时内不同IP数量限制（从日志表查，与前端显示一致）
+        // 注意：当前请求日志尚未写入，若是新IP需手动+1
+        $since24h  = \Carbon\Carbon::now()->subHours(24);
+        $dbIpCount = DB::table('v2_subscribe_pull_log')
+            ->where('user_id', $user->id)
+            ->where('created_at', '>=', $since24h)
+            ->distinct('ip')
+            ->count('ip');
+
+        $isNewIp = !DB::table('v2_subscribe_pull_log')
+            ->where('user_id', $user->id)
+            ->where('ip', $ip)
+            ->where('created_at', '>=', $since24h)
+            ->exists();
+
+        $ipCount = $dbIpCount + ($isNewIp ? 1 : 0);
 
         if ($ipCount > $maxIps) {
             Redis::setex($banKey, $banSeconds, 'ip');
