@@ -214,10 +214,16 @@ class ConfigController extends Controller
             'sub_unban_interval_days', 'sub_unban_max_count',
         ];
 
+        // 前端将数据包在 config 对象中发送，兼容两种格式：
+        // { config: { key: val } } 或直接 { key: val }
+        $input = $request->has('config')
+            ? (array)$request->input('config')
+            : $request->all();
+
         $config = config('v2board');
         foreach ($keys as $key) {
-            if (!$request->has($key)) continue;
-            $val = $request->input($key);
+            if (!array_key_exists($key, $input)) continue;
+            $val = $input[$key];
             // 前端 switch 类型发送布尔值，统一转为 0/1 整型
             $config[$key] = is_bool($val) ? (int)$val : $val;
         }
