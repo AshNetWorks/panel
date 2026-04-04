@@ -1,4 +1,6 @@
 .claude
+/backups
+/public/.well-known/acme-challenge
 /node_modules
 /config/v2board.php
 /public/hot
