@@ -264,21 +264,24 @@ class StatController extends Controller
         $banTtl     = $banned ? (int)Redis::ttl($banKey) : 0;
         $banRemainingHours = $banTtl > 0 ? ceil($banTtl / 3600) : 0;
 
-        // 24小时内独立IP数（滑动窗口）
-        $ipKey  = 'sub:ips:' . $userId;
-        $now    = time();
-        Redis::zremrangebyscore($ipKey, 0, $now - 86400);
-        $ipCount = (int)Redis::zcard($ipKey);
+        // 24小时拉取次数、独立IP数、近1小时拉取次数（均从日志表查询，数据准确）
+        $since24h = now()->subHours(24);
+        $since1h  = now()->subHour();
 
-        // 24小时拉取次数 & 近1小时拉取次数（查日志表）
         $pull24h = DB::table('v2_subscribe_pull_log')
             ->where('user_id', $userId)
-            ->where('created_at', '>=', now()->subHours(24))
+            ->where('created_at', '>=', $since24h)
             ->count();
+
+        $ipCount = DB::table('v2_subscribe_pull_log')
+            ->where('user_id', $userId)
+            ->where('created_at', '>=', $since24h)
+            ->distinct('ip')
+            ->count('ip');
 
         $pull1h = DB::table('v2_subscribe_pull_log')
             ->where('user_id', $userId)
-            ->where('created_at', '>=', now()->subHour())
+            ->where('created_at', '>=', $since1h)
             ->count();
 
         return response([
