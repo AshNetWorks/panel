@@ -347,29 +347,77 @@ class ClientController extends Controller
     }
 
     /**
-     * ✅ 订阅限制触发时通知管理员（TG）
+     * ✅ 订阅限制触发时通知管理员（TG）+ 通知用户（TG + 邮件）
      */
     private function notifyAdminSubBan($user, string $type, int $count, int $banHours): void
     {
-        if (!config('v2board.telegram_bot_enable', 0)) return;
-        try {
-            $now = date('Y-m-d H:i:s');
-            if ($type === 'rate') {
-                $message = "🚫 订阅频率超限，已暂停更新\n" .
-                           "用户：{$user->email}\n" .
-                           "触发：每分钟拉取 {$count} 次（超出限制）\n" .
-                           "暂停时长：{$banHours} 小时\n" .
-                           "时间：{$now}";
-            } else {
-                $message = "🚫 订阅IP超限，已暂停更新\n" .
-                           "用户：{$user->email}\n" .
-                           "触发：24小时内不同IP {$count} 个（超出限制）\n" .
-                           "暂停时长：{$banHours} 小时\n" .
-                           "时间：{$now}";
+        $now     = date('Y-m-d H:i:s');
+        $appName = config('v2board.app_name', 'V2Board');
+        $appUrl  = config('v2board.app_url', '');
+
+        if ($type === 'rate') {
+            $adminMsg = "🚫 订阅频率超限，已暂停更新\n" .
+                        "用户：{$user->email}\n" .
+                        "触发：每分钟拉取 {$count} 次（超出限制）\n" .
+                        "暂停时长：{$banHours} 小时\n" .
+                        "时间：{$now}";
+            $userMailContent = "您的订阅拉取频率超出限制（每分钟超过 {$count} 次），订阅更新已被暂停 {$banHours} 小时。\n\n" .
+                               "此限制仅影响订阅更新，不影响已有节点的正常使用。\n\n" .
+                               "如需解除限制，请登录面板申请自助解封。\n\n" .
+                               "请勿频繁拉取订阅，避免再次触发限制。";
+            $userTgMsg = "🚫 您的订阅更新已被暂停\n\n" .
+                         "原因：每分钟拉取次数超出限制\n" .
+                         "暂停时长：{$banHours} 小时\n\n" .
+                         "节点正常使用不受影响，可在面板申请解封。";
+        } else {
+            $adminMsg = "🚫 订阅IP超限，已暂停更新\n" .
+                        "用户：{$user->email}\n" .
+                        "触发：24小时内不同IP {$count} 个（超出限制）\n" .
+                        "暂停时长：{$banHours} 小时\n" .
+                        "时间：{$now}";
+            $userMailContent = "您的订阅在24小时内使用了 {$count} 个不同IP，超出允许的上限，订阅更新已被暂停 {$banHours} 小时。\n\n" .
+                               "不同网络环境（WiFi、流量、公司网络等）均算作不同IP。\n\n" .
+                               "此限制仅影响订阅更新，不影响已有节点的正常使用。\n\n" .
+                               "如需解除限制，请登录面板申请自助解封。\n\n" .
+                               "请勿将订阅链接分享给他人，以免触发限制。";
+            $userTgMsg = "🚫 您的订阅更新已被暂停\n\n" .
+                         "原因：24小时内使用了 {$count} 个不同IP\n" .
+                         "暂停时长：{$banHours} 小时\n\n" .
+                         "节点正常使用不受影响，可在面板申请解封。";
+        }
+
+        // 通知管理员
+        if (config('v2board.telegram_bot_enable', 0)) {
+            try {
+                (new TelegramService())->sendMessageWithAdmin($adminMsg);
+            } catch (\Throwable $e) {
+                Log::error('Sub ban admin TG notify failed: ' . $e->getMessage());
             }
-            (new TelegramService())->sendMessageWithAdmin($message);
+        }
+
+        // 通知用户 TG
+        if (config('v2board.telegram_bot_enable', 0) && !empty($user->telegram_id)) {
+            try {
+                \App\Jobs\SendTelegramJob::dispatch($user->telegram_id, $userTgMsg);
+            } catch (\Throwable $e) {
+                Log::error('Sub ban user TG notify failed: ' . $e->getMessage());
+            }
+        }
+
+        // 通知用户邮件
+        try {
+            \App\Jobs\SendEmailJob::dispatch([
+                'email'          => $user->email,
+                'subject'        => "【{$appName}】订阅更新已被暂停",
+                'template_name'  => 'notify',
+                'template_value' => [
+                    'name'    => $appName,
+                    'content' => $userMailContent,
+                    'url'     => $appUrl,
+                ],
+            ]);
         } catch (\Throwable $e) {
-            Log::error('Sub ban TG notify failed: ' . $e->getMessage());
+            Log::error('Sub ban email notify failed: ' . $e->getMessage());
         }
     }
 
