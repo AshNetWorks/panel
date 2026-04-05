@@ -79,9 +79,11 @@ class SetRate extends Telegram
         $matched      = [];
         $totalUpdated = 0;
 
+        $safeKeyword = addcslashes($keyword, '%_\\');
+
         foreach (self::SERVER_TABLES as $table => $typeName) {
             $servers = DB::table($table)
-                ->where('name', 'LIKE', "%{$keyword}%")
+                ->where('name', 'LIKE', "%{$safeKeyword}%")
                 ->select(['id', 'name', 'rate'])
                 ->get();
 

@@ -139,12 +139,6 @@ class Ban extends Telegram {
      */
     private function isAdmin($telegramId, $groupChatId) {
         try {
-            // 🔥 临时：允许特定用户使用（测试用，正式环境请删除）
-            $allowedUsers = [];
-            if (in_array($telegramId, $allowedUsers)) {
-                return true;
-            }
-
             // 检查是否是群组管理员或创建者
             $member = $this->telegramService->getChatMember($groupChatId, $telegramId);
 
