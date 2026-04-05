@@ -317,10 +317,15 @@ class ClientController extends Controller
         if ($rateCount > $maxPerMin) {
             Redis::setex($banKey, $banSeconds, 'rate');
             $this->notifyAdminSubBan($user, 'rate', $rateCount, $banHours);
-            DB::table('v2_subscribe_pull_log')->insert([
-                'user_id' => $user->id, 'ip' => $ip,
-                'blocked' => 1, 'block_reason' => 'rate_limit', 'created_at' => now(),
-            ]);
+            try {
+                DB::table('v2_subscribe_pull_log')->insert([
+                    'user_id' => $user->id, 'ip' => $ip,
+                    'user_agent' => '', 'os' => 'Unknown', 'device' => 'Unknown',
+                    'blocked' => 1, 'block_reason' => 'rate_limit', 'created_at' => now(),
+                ]);
+            } catch (\Exception $e) {
+                \Log::warning('封禁日志写入失败(rate_limit): ' . $e->getMessage());
+            }
             return true;
         }
 
@@ -350,10 +355,15 @@ class ClientController extends Controller
         if ($ipCount > $maxIps) {
             Redis::setex($banKey, $banSeconds, 'ip');
             $this->notifyAdminSubBan($user, 'ip', $ipCount, $banHours);
-            DB::table('v2_subscribe_pull_log')->insert([
-                'user_id' => $user->id, 'ip' => $ip,
-                'blocked' => 1, 'block_reason' => 'ip_limit', 'created_at' => now(),
-            ]);
+            try {
+                DB::table('v2_subscribe_pull_log')->insert([
+                    'user_id' => $user->id, 'ip' => $ip,
+                    'user_agent' => '', 'os' => 'Unknown', 'device' => 'Unknown',
+                    'blocked' => 1, 'block_reason' => 'ip_limit', 'created_at' => now(),
+                ]);
+            } catch (\Exception $e) {
+                \Log::warning('封禁日志写入失败(ip_limit): ' . $e->getMessage());
+            }
             return true;
         }
 

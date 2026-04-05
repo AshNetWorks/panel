@@ -49,7 +49,7 @@ class DailySubscribeReport extends Command
 
         $lines[] = "📋 *概览*";
         $lines[] = "拉取总次数：{$overview->total}　活跃用户：{$overview->users}　独立IP：{$overview->ips}";
-        if ($overview->blocked > 0) {
+        if ((int)($overview->blocked ?? 0) > 0) {
             $lines[] = "🚫 被拦截请求：{$overview->blocked} 次";
         }
 
