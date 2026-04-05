@@ -120,9 +120,9 @@ class Start extends Telegram
                 $welcomeText .= "🔑 *管理员命令*\n";
                 $welcomeText .= "• /stats — 系统用户概况\n";
                 $welcomeText .= "• /userinfo [邮箱/ID/tg:ID] — 查询用户详情\n";
-                $welcomeText .= "• /grant\_days [天数] all|[邮箱] [留言] — 赠送天数\n";
-                $welcomeText .= "• /grant\_traffic [GB] all|[邮箱] [留言] — 赠送流量\n";
-                $welcomeText .= "• /set\_rate [倍率] [关键词] — 调整节点倍率\n";
+                $welcomeText .= "• /grant_days [天数] all|[邮箱] [留言] — 赠送天数\n";
+                $welcomeText .= "• /grant_traffic [GB] all|[邮箱] [留言] — 赠送流量\n";
+                $welcomeText .= "• /set_rate [倍率] [关键词] — 调整节点倍率\n";
                 $welcomeText .= "• /ban [邮箱] — 封禁用户\n";
                 $welcomeText .= "• /unban [邮箱] — 解封用户\n";
                 $welcomeText .= "• /watch add|remove|list — 监控名单管理\n";
@@ -130,6 +130,6 @@ class Start extends Telegram
             }
         }
 
-        $this->telegramService->sendMessage($message->chat_id, $welcomeText);
+        $this->telegramService->sendMessage($message->chat_id, $welcomeText, 'markdown');
     }
 }

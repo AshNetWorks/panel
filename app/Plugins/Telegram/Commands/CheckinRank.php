@@ -130,6 +130,22 @@ class CheckinRank extends Telegram
                 ->get();
         }
 
+        // 批量预加载所有榜单涉及的用户（避免 N+1 查询）
+        $allUserIds = [];
+        if ($period !== 'all') {
+            foreach ([$rewardRankings, $penaltyRankings, $checkinCountRankings, $netTrafficRankings] as $ranking) {
+                $allUserIds = array_merge($allUserIds, $ranking->pluck('user_id')->toArray());
+            }
+        } else {
+            foreach ([$streakRankings, $totalDaysRankings, $netTrafficRankings, $unluckyRankings] as $ranking) {
+                $allUserIds = array_merge($allUserIds, $ranking->pluck('user_id')->toArray());
+            }
+        }
+        $usersMap = User::whereIn('id', array_unique($allUserIds))
+            ->select('id', 'email')
+            ->get()
+            ->keyBy('id');
+
         // 构建消息
         $msg = "🏆 *签到排行榜 - {$title}*\n";
         $msg .= "━━━━━━━━━━━━━━━━\n\n";
@@ -144,9 +160,9 @@ class CheckinRank extends Telegram
                 foreach ($netTrafficRankings as $index => $item) {
                     $rank = $index + 1;
                     $medal = $this->getMedal($rank);
-                    $rankUser = User::find($item->user_id);
+                    $rankUser = $usersMap[$item->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
+                        $userName = $this->getDisplayName($rankUser->email);
                         $traffic = $this->formatTraffic($item->net_traffic);
                         $prefix = $item->net_traffic >= 0 ? '+' : '';
                         $msg .= "{$medal} {$userName} {$prefix}{$traffic}\n";
@@ -163,9 +179,9 @@ class CheckinRank extends Telegram
                 foreach ($rewardRankings as $index => $item) {
                     $rank = $index + 1;
                     $medal = $this->getMedal($rank);
-                    $rankUser = User::find($item->user_id);
+                    $rankUser = $usersMap[$item->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
+                        $userName = $this->getDisplayName($rankUser->email);
                         $traffic = $this->formatTraffic($item->total_reward);
                         $msg .= "{$medal} {$userName} +{$traffic}\n";
                     }
@@ -181,9 +197,9 @@ class CheckinRank extends Telegram
                 foreach ($penaltyRankings as $index => $item) {
                     $rank = $index + 1;
                     $medal = $this->getMedal($rank);
-                    $rankUser = User::find($item->user_id);
+                    $rankUser = $usersMap[$item->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
+                        $userName = $this->getDisplayName($rankUser->email);
                         $traffic = $this->formatTraffic($item->total_penalty);
                         $msg .= "{$medal} {$userName} -{$traffic}\n";
                     }
@@ -219,9 +235,9 @@ class CheckinRank extends Telegram
                 foreach ($streakRankings as $index => $stats) {
                     $rank = $index + 1;
                     $medal = $this->getMedal($rank);
-                    $rankUser = User::find($stats->user_id);
+                    $rankUser = $usersMap[$stats->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
+                        $userName = $this->getDisplayName($rankUser->email);
                         $msg .= "{$medal} {$userName} {$stats->checkin_streak}天\n";
                     }
                 }
@@ -236,9 +252,9 @@ class CheckinRank extends Telegram
                 foreach ($totalDaysRankings as $index => $stats) {
                     $rank = $index + 1;
                     $medal = $this->getMedal($rank);
-                    $rankUser = User::find($stats->user_id);
+                    $rankUser = $usersMap[$stats->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
+                        $userName = $this->getDisplayName($rankUser->email);
                         $msg .= "{$medal} {$userName} {$stats->total_checkin_days}天\n";
                     }
                 }
@@ -253,9 +269,9 @@ class CheckinRank extends Telegram
                 foreach ($netTrafficRankings as $index => $stats) {
                     $rank = $index + 1;
                     $medal = $this->getMedal($rank);
-                    $rankUser = User::find($stats->user_id);
+                    $rankUser = $usersMap[$stats->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
+                        $userName = $this->getDisplayName($rankUser->email);
                         $traffic = $this->formatTraffic($stats->total_checkin_traffic);
                         $prefix = $stats->total_checkin_traffic >= 0 ? '+' : '';
                         $msg .= "{$medal} {$userName} {$prefix}{$traffic}\n";
@@ -270,9 +286,9 @@ class CheckinRank extends Telegram
                 foreach ($unluckyRankings as $index => $stats) {
                     $rank = $index + 1;
                     $medal = $this->getMedal($rank);
-                    $rankUser = User::find($stats->user_id);
+                    $rankUser = $usersMap[$stats->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
+                        $userName = $this->getDisplayName($rankUser->email);
                         $traffic = $this->formatTraffic(abs($stats->total_checkin_traffic));
                         $msg .= "{$medal} {$userName} -{$traffic}\n";
                     }
@@ -314,38 +330,12 @@ class CheckinRank extends Telegram
     }
 
     /**
-     * 通过 Telegram ID 获取用户显示名称（纯文本，不含链接）
-     * 只显示 first_name，不进行 @ 提及
+     * 用邮箱前缀作为显示名称（避免逐条调 Telegram API）
      */
-    private function getTelegramDisplayName($telegramId, $telegramService)
+    private function getDisplayName(string $email): string
     {
-        if (!$telegramId) {
-            return '未知用户';
-        }
-
-        try {
-            $chat = $telegramService->getChat($telegramId);
-
-            if ($chat) {
-                // 只返回 first_name，仅转义必要的 Markdown 字符
-                if (!empty($chat->first_name)) {
-                    return $this->escapeName($chat->first_name);
-                }
-
-                // 如果没有 first_name，尝试使用 username
-                if (!empty($chat->username)) {
-                    return $this->escapeName($chat->username);
-                }
-            }
-        } catch (\Exception $e) {
-            \Log::error('获取 Telegram 用户显示名称失败', [
-                'telegram_id' => $telegramId,
-                'error' => $e->getMessage()
-            ]);
-        }
-
-        // 如果获取失败，返回 ID
-        return 'User ' . $telegramId;
+        $prefix = strstr($email, '@', true) ?: $email;
+        return $this->escapeName($prefix);
     }
 
     /**
