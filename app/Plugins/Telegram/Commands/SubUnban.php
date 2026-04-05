@@ -93,21 +93,24 @@ class SubUnban extends Telegram
         $banReason = $banType === 'rate' ? '每分钟拉取频率超限' : '24小时内不同IP超限';
         $banRemain = $banTtl > 0 ? ceil($banTtl / 3600) . ' 小时后自动解除' : '即将解除';
 
-        // 24h拉取详情（全量，由 sendChunked 自动分片）
+        // 24h拉取详情（只统计真实拉取，过滤封禁事件日志）
         $logs = DB::table('v2_subscribe_pull_log')
             ->where('user_id', $user->id)
             ->where('created_at', '>=', now()->subHours(24))
+            ->where('blocked', 0)
             ->orderBy('created_at', 'desc')
             ->get(['ip', 'os', 'device', 'country', 'city', 'created_at']);
 
         $pull24h  = DB::table('v2_subscribe_pull_log')
             ->where('user_id', $user->id)
             ->where('created_at', '>=', now()->subHours(24))
+            ->where('blocked', 0)
             ->count();
 
         $ipCount = DB::table('v2_subscribe_pull_log')
             ->where('user_id', $user->id)
             ->where('created_at', '>=', now()->subHours(24))
+            ->where('blocked', 0)
             ->distinct('ip')
             ->count('ip');
 

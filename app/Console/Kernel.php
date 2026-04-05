@@ -53,7 +53,7 @@ class Kernel extends ConsoleKernel
                  ->withoutOverlapping()
                  ->runInBackground();
         // ✅ 每日订阅拉取报告 - 凌晨0:15执行，统计昨天完整数据
-        $schedule->command('report:daily-subscribe --enhanced')
+        $schedule->command('report:daily-subscribe')
                  ->dailyAt('00:15')
                  ->withoutOverlapping()
                  ->runInBackground()
