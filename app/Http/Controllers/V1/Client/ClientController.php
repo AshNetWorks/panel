@@ -1010,22 +1010,71 @@ class ClientController extends Controller
      */
     private function detectOS($userAgent)
     {
-        // 优先检测代理客户端
-        if (strpos($userAgent, 'clash') !== false) {
-            return 'Clash';
-        } elseif (strpos($userAgent, 'singbox') !== false || strpos($userAgent, 'sing-box') !== false) {
-            return 'Singbox';
-        } elseif (strpos($userAgent, 'mihomo') !== false) {
-            return 'Mihomo';
-        } elseif (strpos($userAgent, 'quantumult') !== false) {
-            return 'Quantumult';
-        } elseif (strpos($userAgent, 'shadowrocket') !== false) {
-            return 'Shadowrocket';
-        } elseif (strpos($userAgent, 'surge') !== false) {
-            return 'Surge';
+        // ① 代理客户端识别（优先，UA 中客户端名通常在最前面）
+        $clientMap = [
+            // Clash 系
+            'clash-verge'    => 'Clash Verge',
+            'clashverge'     => 'Clash Verge',
+            'clash-meta'     => 'Clash Meta',
+            'clashmeta'      => 'Clash Meta',
+            'clashx'         => 'ClashX',
+            'cfa'            => 'Clash for Android',
+            'clash'          => 'Clash',
+            // Mihomo
+            'mihomo'         => 'Mihomo',
+            // Sing-box 系
+            'sing-box'       => 'Sing-box',
+            'singbox'        => 'Sing-box',
+            'hiddify'        => 'Hiddify',
+            'flclash'        => 'FlClash',
+            'karing'         => 'Karing',
+            // Surge / Stash / Loon / Surfboard
+            'surge'          => 'Surge',
+            'stash'          => 'Stash',
+            'loon'           => 'Loon',
+            'surfboard'      => 'Surfboard',
+            // Quantumult
+            'quantumult x'   => 'Quantumult X',
+            'quantumultx'    => 'Quantumult X',
+            'quantumult'     => 'Quantumult',
+            // Shadowrocket
+            'shadowrocket'   => 'Shadowrocket',
+            // v2ray 系
+            'v2rayn'         => 'v2rayN',
+            'v2rayng'        => 'v2rayNG',
+            'v2ray'          => 'v2ray',
+            // Xray 系
+            'nekoray'        => 'Nekoray',
+            'nekobox'        => 'Nekobox',
+            'husi'           => 'Husi',
+            // SagerNet 系
+            'sagernet'       => 'SagerNet',
+            'matsuri'        => 'Matsuri',
+            'anxray'         => 'AnXray',
+            // 其他
+            'pharos'         => 'Pharos',
+            'streisand'      => 'Streisand',
+            'netch'          => 'Netch',
+            'leaf'           => 'Leaf',
+            'trojan'         => 'Trojan',
+            'wireguard'      => 'WireGuard',
+            'kitsunebi'      => 'Kitsunebi',
+            // HTTP 工具（爬虫/脚本）
+            'python-requests'=> 'Python',
+            'go-http-client' => 'Go HTTP',
+            'okhttp'         => 'OkHttp',
+            'curl'           => 'cURL',
+            'wget'           => 'wget',
+            'axios'          => 'Axios',
+        ];
+
+        foreach ($clientMap as $keyword => $name) {
+            if (strpos($userAgent, $keyword) !== false) {
+                return $name;
+            }
         }
 
-        // 检测操作系统
+        // ② 操作系统兜底
         if (strpos($userAgent, 'android') !== false) {
             return 'Android';
         } elseif (strpos($userAgent, 'iphone') !== false || strpos($userAgent, 'ipad') !== false) {
@@ -1049,23 +1098,30 @@ class ClientController extends Controller
      */
     private function detectDeviceType($userAgent)
     {
-        // 检测移动设备
-        $mobileKeywords = ['mobile', 'android', 'iphone', 'ipod', 'blackberry', 'windows phone'];
-        foreach ($mobileKeywords as $keyword) {
-            if (strpos($userAgent, $keyword) !== false) {
-                return 'Mobile';
-            }
-        }
-
-        // 检测平板
-        $tabletKeywords = ['ipad', 'tablet', 'kindle'];
+        // 平板优先（避免被手机关键词误匹配）
+        $tabletKeywords = ['ipad', 'tablet', 'kindle', 'playbook', 'silk'];
         foreach ($tabletKeywords as $keyword) {
             if (strpos($userAgent, $keyword) !== false) {
                 return 'Tablet';
             }
         }
 
-        // 默认为桌面设备
+        // 手机
+        $mobileKeywords = ['mobile', 'android', 'iphone', 'ipod', 'blackberry', 'windows phone', 'symbian', 'phone'];
+        foreach ($mobileKeywords as $keyword) {
+            if (strpos($userAgent, $keyword) !== false) {
+                return 'Mobile';
+            }
+        }
+
+        // 路由器 / 软路由
+        $routerKeywords = ['openwrt', 'merlin', 'asuswrt', 'ddwrt', 'opnsense', 'pfsense', 'lede'];
+        foreach ($routerKeywords as $keyword) {
+            if (strpos($userAgent, $keyword) !== false) {
+                return 'Router';
+            }
+        }
+
         return 'Desktop';
     }
 
