@@ -101,7 +101,7 @@ class Join extends Telegram {
             // 6. 检查冷却
             $cooldownKey = "tg_join_cooldown_{$user->telegram_id}";
             if (Cache::has($cooldownKey)) {
-                $remainingCooldown = Cache::get($cooldownKey . '_expires') - time();
+                $remainingCooldown = max(1, (int)Cache::get($cooldownKey . '_expires') - time());
                 $this->sendSafeMessage($telegramService, $message->chat_id, 
                     "⏳ 操作太频繁，请 {$remainingCooldown} 秒后再试\n\n" .
                     "💡 提示：每次生成邀请链接后需要等待10秒"

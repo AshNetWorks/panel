@@ -38,13 +38,13 @@ class SubscribeNotify extends Telegram
         if ($action === 'on') {
             $user->telegram_subscribe_notify = true;
             $user->save();
-            $this->telegramService->sendMessage($message->chat_id, '✅ 订阅拉取通知已开启\n\n每次拉取订阅时将收到通知，包含设备信息、IP归属地等');
+            $this->telegramService->sendMessage($message->chat_id, "✅ 订阅拉取通知已开启\n\n每次拉取订阅时将收到通知，包含设备信息、IP归属地等");
         } elseif ($action === 'off') {
             $user->telegram_subscribe_notify = false;
             $user->save();
             $this->telegramService->sendMessage($message->chat_id, '❌ 订阅拉取通知已关闭');
         } else {
-            $this->telegramService->sendMessage($message->chat_id, '❌ 参数错误\n\n请使用：\n• /subscribe_notify on - 开启通知\n• /subscribe_notify off - 关闭通知');
+            $this->telegramService->sendMessage($message->chat_id, "❌ 参数错误\n\n请使用：\n• /subscribe_notify on - 开启通知\n• /subscribe_notify off - 关闭通知");
         }
     }
 }

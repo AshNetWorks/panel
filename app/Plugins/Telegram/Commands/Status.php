@@ -23,19 +23,24 @@ class Status extends Telegram
         
         $statusText = "👤 *账户状态*\n\n";
         $statusText .= "📧 邮箱: " . $this->escapeMarkdown($user->email) . "\n";
-        $statusText .= "📅 到期时间: " . Carbon::parse($user->expired_at)->format('Y-m-d H:i') . "\n";
+        $expiredDisplay = $user->expired_at ? Carbon::parse($user->expired_at)->format('Y-m-d H:i') : '永久有效';
+        $statusText .= "📅 到期时间: " . $expiredDisplay . "\n";
         $statusText .= "🚫 封禁状态: " . ($user->banned ? '❌ 已封禁' : '✅ 正常') . "\n\n";
-        
+
         $statusText .= "🔔 *通知设置*\n";
         $statusText .= "状态: " . ($user->telegram_daily_traffic_notify ? '🟢 已开启' : '🔴 已关闭') . "\n";
         $statusText .= "时间: " . ($user->telegram_notify_time ?? '23:50') . "\n\n";
-        
+
         // 计算剩余天数
-        $remainingDays = Carbon::now()->diffInDays(Carbon::parse($user->expired_at), false);
-        if ($remainingDays > 0) {
-            $statusText .= "⏰ 服务剩余: {$remainingDays} 天";
+        if (!$user->expired_at) {
+            $statusText .= "⏰ 服务状态: 永久有效";
         } else {
-            $statusText .= "⚠️ 服务已过期";
+            $remainingDays = Carbon::now()->diffInDays(Carbon::parse($user->expired_at), false);
+            if ($remainingDays > 0) {
+                $statusText .= "⏰ 服务剩余: {$remainingDays} 天";
+            } else {
+                $statusText .= "⚠️ 服务已过期";
+            }
         }
         
         $telegramService->sendMessage($msg->chat_id, $statusText, 'markdown');
