@@ -36,7 +36,7 @@ class Emby extends Telegram
             ->get();
 
         if ($embyAccounts->isEmpty()) {
-            $telegramService->sendMessage($message->chat_id, '❌ 您还没有创建 Emby 账户\n\n请访问用户中心创建 Emby 账户', 'markdown');
+            $telegramService->sendMessage($message->chat_id, "❌ 您还没有创建 Emby 账户\n\n请访问用户中心创建 Emby 账户", 'markdown');
             return;
         }
 

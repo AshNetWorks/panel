@@ -89,7 +89,7 @@ class Bind extends Telegram {
         $rebindInfo = Cache::get($rebindKey);
         if ($rebindInfo && (int)$rebindInfo['old_telegram_id'] !== (int)$message->chat_id) {
             Cache::forget($rebindKey);
-            $email      = str_replace(['_', '*', '[', '`'], ['\_', '\*', '\[', '\`'], $rebindInfo['email']);
+            $email      = $rebindInfo['email'];
             $oldTgLabel = $rebindInfo['old_username']
                 ? '@' . $rebindInfo['old_username']
                 : ($rebindInfo['old_first_name'] ?? '未知');
