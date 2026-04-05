@@ -1074,7 +1074,31 @@ class ClientController extends Controller
             }
         }
 
-        // ② 操作系统兜底
+        // ② 浏览器识别（带平台后缀，如 Safari/macOS）
+        $platform = '';
+        if (strpos($userAgent, 'iphone') !== false || strpos($userAgent, 'ipad') !== false) {
+            $platform = '/iOS';
+        } elseif (strpos($userAgent, 'android') !== false) {
+            $platform = '/Android';
+        } elseif (strpos($userAgent, 'mac os x') !== false || strpos($userAgent, 'macintosh') !== false) {
+            $platform = '/macOS';
+        } elseif (strpos($userAgent, 'windows') !== false) {
+            $platform = '/Windows';
+        } elseif (strpos($userAgent, 'linux') !== false) {
+            $platform = '/Linux';
+        }
+
+        if (strpos($userAgent, 'firefox') !== false) {
+            return 'Firefox' . $platform;
+        } elseif (strpos($userAgent, 'edg') !== false) {
+            return 'Edge' . $platform;
+        } elseif (strpos($userAgent, 'chrome') !== false) {
+            return 'Chrome' . $platform;
+        } elseif (strpos($userAgent, 'safari') !== false) {
+            return 'Safari' . $platform;
+        }
+
+        // ③ 操作系统兜底
         if (strpos($userAgent, 'android') !== false) {
             return 'Android';
         } elseif (strpos($userAgent, 'iphone') !== false || strpos($userAgent, 'ipad') !== false) {
