@@ -461,9 +461,9 @@ class TelegramController extends Controller
                 // 发送通知
                 $notificationText = "⚠️ 用户 {$userMention} 因未绑定账户被移出群组\n\n";
                 $notificationText .= "💡 如需加入群组，请：\n";
-                $notificationText .= "1\\. 访问用户中心绑定 Telegram 账户\n";
-                $notificationText .= "2\\. 绑定完成后私聊机器人发送 /join\n";
-                $notificationText .= "3\\. 使用邀请链接重新加入群组";
+                $notificationText .= "1. 访问用户中心绑定 Telegram 账户\n";
+                $notificationText .= "2. 绑定完成后私聊机器人发送 /join\n";
+                $notificationText .= "3. 使用邀请链接重新加入群组";
 
                 $response = $this->telegramService->sendMessage($chatId, $notificationText, 'markdown');
 
@@ -691,7 +691,7 @@ EOT;
 
             '客户端' => "💻 *推荐客户端*\n\n*Windows:* Clash for Windows / v2rayN\n*macOS:* ClashX / Surge\n*iOS:* Shadowrocket / Surge\n*Android:* Clash for Android / v2rayNG\n\n下载地址请访问官网文档",
 
-            '帮助' => "❓ *获取帮助*\n\n*私聊机器人可用命令:*\n• /help \\- 查看所有命令\n• /traffic \\- 查看流量\n• /status \\- 查看账户状态\n\n*其他问题:*\n请联系管理员或查看置顶消息",
+            '帮助' => "❓ *获取帮助*\n\n*私聊机器人可用命令:*\n• /help - 查看所有命令\n• /traffic - 查看流量\n• /status - 查看账户状态\n\n*其他问题:*\n请联系管理员或查看置顶消息",
 
             'emby' => "🎬 *Emby 媒体服务*\n\n客户端、教程、图标都在下面\n请根据自己的需求选择客户端\n\n⚠️ *重要提示：*\n仅支持官方客户端及以下第三方客户端：femor、SenPlayer、Hills、HamHub、Conflux、Lenna、Filebar、Forward、Infuse（直连模式）、dscloud、Terminus Player、Tsukimi、Xfuse、Yamby、RodelPlayer、EplayerX\n\n🌍 *IP 限制说明：*\n中国、日本、美国以外的 IP 登录不受限制\n机场用户可使用日本、美国节点正常观看",
         ];

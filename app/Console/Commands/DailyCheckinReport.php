@@ -60,38 +60,30 @@ class DailyCheckinReport extends Command
             $msg .= "━━━━━━━━━━━━━━━━\n\n";
 
             // 欧皇榜
+            $luckyUser = $luckyCheckin ? User::find($luckyCheckin->user_id) : null;
             if ($luckyCheckin) {
-                $luckyUser = User::find($luckyCheckin->user_id);
-                if ($luckyUser && $luckyUser->telegram_id) {
-                    $luckyUserName = $this->getTelegramDisplayName($luckyUser->telegram_id, $telegramService);
-                    $luckyTraffic = $this->formatTraffic($luckyCheckin->traffic_amount);
-                    $msg .= "👑 *昨日欧皇*\n";
+                $luckyTraffic = $this->formatTraffic($luckyCheckin->traffic_amount);
+                $msg .= "👑 *昨日欧皇*\n";
+                if ($luckyUser) {
+                    $luckyUserName = strstr($luckyUser->email, '@', true) ?: $luckyUser->email;
                     $msg .= "• {$luckyUserName}\n";
-                    $msg .= "• 获得流量：+{$luckyTraffic}\n\n";
-                } else {
-                    $luckyTraffic = $this->formatTraffic($luckyCheckin->traffic_amount);
-                    $msg .= "👑 *昨日欧皇*\n";
-                    $msg .= "• 获得流量：+{$luckyTraffic}\n\n";
                 }
+                $msg .= "• 获得流量：+{$luckyTraffic}\n\n";
             } else {
                 $msg .= "👑 *昨日欧皇*\n";
                 $msg .= "• 暂无数据\n\n";
             }
 
             // 非酋榜
+            $unluckyUser = $unluckyCheckin ? User::find($unluckyCheckin->user_id) : null;
             if ($unluckyCheckin) {
-                $unluckyUser = User::find($unluckyCheckin->user_id);
-                if ($unluckyUser && $unluckyUser->telegram_id) {
-                    $unluckyUserName = $this->getTelegramDisplayName($unluckyUser->telegram_id, $telegramService);
-                    $unluckyTraffic = $this->formatTraffic($unluckyCheckin->traffic_amount);
-                    $msg .= "🤡 *昨日非酋*\n";
+                $unluckyTraffic = $this->formatTraffic($unluckyCheckin->traffic_amount);
+                $msg .= "🤡 *昨日非酋*\n";
+                if ($unluckyUser) {
+                    $unluckyUserName = strstr($unluckyUser->email, '@', true) ?: $unluckyUser->email;
                     $msg .= "• {$unluckyUserName}\n";
-                    $msg .= "• 损失流量：-{$unluckyTraffic}\n\n";
-                } else {
-                    $unluckyTraffic = $this->formatTraffic($unluckyCheckin->traffic_amount);
-                    $msg .= "🤡 *昨日非酋*\n";
-                    $msg .= "• 损失流量：-{$unluckyTraffic}\n\n";
                 }
+                $msg .= "• 损失流量：-{$unluckyTraffic}\n\n";
             } else {
                 $msg .= "🤡 *昨日非酋*\n";
                 $msg .= "• 暂无数据\n\n";
@@ -119,11 +111,11 @@ class DailyCheckinReport extends Command
                 $this->info("签到人数: {$totalCheckins}");
 
                 if ($luckyCheckin) {
-                    $this->info("欧皇: " . ($luckyUser->email ?? 'Unknown') . " (+" . $this->formatTraffic($luckyCheckin->traffic_amount) . ")");
+                    $this->info("欧皇: " . ($luckyUser?->email ?? 'Unknown') . " (+" . $this->formatTraffic($luckyCheckin->traffic_amount) . ")");
                 }
 
                 if ($unluckyCheckin) {
-                    $this->info("非酋: " . ($unluckyUser->email ?? 'Unknown') . " (-" . $this->formatTraffic($unluckyCheckin->traffic_amount) . ")");
+                    $this->info("非酋: " . ($unluckyUser?->email ?? 'Unknown') . " (-" . $this->formatTraffic($unluckyCheckin->traffic_amount) . ")");
                 }
 
                 return 0;
@@ -141,54 +133,6 @@ class DailyCheckinReport extends Command
             ]);
             return 1;
         }
-    }
-
-    /**
-     * 通过 Telegram ID 获取用户显示名称（纯文本，不含链接）
-     * 只显示 first_name，不进行 @ 提及
-     */
-    private function getTelegramDisplayName($telegramId, $telegramService)
-    {
-        if (!$telegramId) {
-            return '未知用户';
-        }
-
-        try {
-            $chat = $telegramService->getChat($telegramId);
-
-            if ($chat) {
-                // 只返回 first_name，仅转义必要的 Markdown 字符
-                if (!empty($chat->first_name)) {
-                    return $this->escapeName($chat->first_name);
-                }
-
-                // 如果没有 first_name，尝试使用 username
-                if (!empty($chat->username)) {
-                    return $this->escapeName($chat->username);
-                }
-            }
-        } catch (\Exception $e) {
-            \Log::error('获取 Telegram 用户显示名称失败', [
-                'telegram_id' => $telegramId,
-                'error' => $e->getMessage()
-            ]);
-        }
-
-        // 如果获取失败，返回 ID
-        return 'User ' . $telegramId;
-    }
-
-    /**
-     * 转义名称中的特殊字符（仅转义会破坏格式的字符）
-     */
-    private function escapeName($text)
-    {
-        // 只转义会影响 Markdown 解析的关键字符
-        $escapeChars = ['_', '*', '[', ']', '`'];
-        foreach ($escapeChars as $char) {
-            $text = str_replace($char, '\\' . $char, $text);
-        }
-        return $text;
     }
 
     /**
