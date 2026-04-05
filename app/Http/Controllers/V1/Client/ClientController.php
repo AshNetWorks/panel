@@ -317,6 +317,10 @@ class ClientController extends Controller
         if ($rateCount > $maxPerMin) {
             Redis::setex($banKey, $banSeconds, 'rate');
             $this->notifyAdminSubBan($user, 'rate', $rateCount, $banHours);
+            DB::table('v2_subscribe_pull_log')->insert([
+                'user_id' => $user->id, 'ip' => $ip,
+                'blocked' => 1, 'block_reason' => 'rate_limit', 'created_at' => now(),
+            ]);
             return true;
         }
 
@@ -346,6 +350,10 @@ class ClientController extends Controller
         if ($ipCount > $maxIps) {
             Redis::setex($banKey, $banSeconds, 'ip');
             $this->notifyAdminSubBan($user, 'ip', $ipCount, $banHours);
+            DB::table('v2_subscribe_pull_log')->insert([
+                'user_id' => $user->id, 'ip' => $ip,
+                'blocked' => 1, 'block_reason' => 'ip_limit', 'created_at' => now(),
+            ]);
             return true;
         }
 
