@@ -47,6 +47,10 @@ class TelegramService {
 
     public function editMessageText(int $chatId, int $messageId, string $text, string $parseMode = '', array $replyMarkup = [])
     {
+        if ($parseMode === 'markdown') {
+            $text = str_replace('_', '\_', $text);
+        }
+
         $params = [
             'chat_id'    => $chatId,
             'message_id' => $messageId,
@@ -235,8 +239,8 @@ class TelegramService {
             $curl = new Curl();
             $curl->setTimeout(30);
 
-            // 如果参数中包含 reply_markup，使用 POST 请求
-            if (isset($params['reply_markup'])) {
+            // 含文本或 reply_markup 时使用 POST，避免长文本超出 URL 长度限制
+            if (isset($params['reply_markup']) || isset($params['text'])) {
                 $curl->post($this->api . $method, $params);
             } else {
                 $curl->get($this->api . $method . '?' . http_build_query($params));
