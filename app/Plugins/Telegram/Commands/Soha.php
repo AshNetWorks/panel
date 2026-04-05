@@ -333,8 +333,8 @@ class Soha extends Telegram
         $traffic = $this->formatTraffic($checkin->traffic_amount);
         $user = User::find($checkin->user_id);
 
-        if ($user && $user->telegram_id) {
-            $name = $this->getDisplayName($user->telegram_id, $telegramService);
+        if ($user) {
+            $name = $this->escape(strstr($user->email, '@', true) ?: $user->email);
             return "{$label} {$name} {$prefix}{$traffic}";
         }
 
@@ -381,9 +381,10 @@ class Soha extends Telegram
 
     private function escape($text)
     {
+        // 不转义 _，sendMessage('markdown') 已统一处理下划线转义，避免双重转义
         return str_replace(
-            ['_', '*', '[', ']', '`'],
-            ['\\_', '\\*', '\\[', '\\]', '\\`'],
+            ['*', '[', ']', '`'],
+            ['\\*', '\\[', '\\]', '\\`'],
             $text
         );
     }
