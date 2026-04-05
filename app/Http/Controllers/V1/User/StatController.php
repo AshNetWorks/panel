@@ -274,20 +274,24 @@ class StatController extends Controller
             ->max('created_at');
         $sinceTime = $lastUnban ? max(\Carbon\Carbon::parse($lastUnban), $since24h) : $since24h;
 
+        // blocked=0 排除封禁事件日志，只统计真实拉取请求
         $pull24h = DB::table('v2_subscribe_pull_log')
             ->where('user_id', $userId)
             ->where('created_at', '>=', $sinceTime)
+            ->where('blocked', 0)
             ->count();
 
         $ipCount = DB::table('v2_subscribe_pull_log')
             ->where('user_id', $userId)
             ->where('created_at', '>=', $sinceTime)
+            ->where('blocked', 0)
             ->distinct('ip')
             ->count('ip');
 
         $pull1h = DB::table('v2_subscribe_pull_log')
             ->where('user_id', $userId)
             ->where('created_at', '>=', $since1h)
+            ->where('blocked', 0)
             ->count();
 
         // 解封资格信息

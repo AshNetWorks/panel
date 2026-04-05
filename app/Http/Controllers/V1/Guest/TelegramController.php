@@ -808,6 +808,10 @@ EOT;
         }
 
         $pages = json_decode($pagesJson, true);
+        if (!is_array($pages) || empty($pages)) {
+            $this->telegramService->answerCallbackQuery($cqId, '报告数据异常，请等待明日新报告', true);
+            return;
+        }
         $total = count($pages);
 
         if ($newPage < 0 || $newPage >= $total) {
