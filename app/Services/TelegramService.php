@@ -304,7 +304,9 @@ class TelegramService {
         
         $users = User::whereNotNull('telegram_id')
                     ->where('banned', 0)
-                    ->where('expired_at', '>', Carbon::now())
+                    ->where(function ($q) {
+                        $q->whereNull('expired_at')->orWhere('expired_at', '>', Carbon::now());
+                    })
                     ->where('telegram_daily_traffic_notify', 1)
                     ->get();
         
@@ -374,7 +376,7 @@ class TelegramService {
         $usagePercent = $totalLimit > 0 ? round(($totalUsed / $totalLimit) * 100, 2) : 0;
         
         $message = "📊 *每日流量报告*\n\n";
-        $message .= "👋 你好 " . $this->escapeMarkdown($user->email) . "\n\n";
+        $message .= "👋 你好 " . $user->email . "\n\n";
         $message .= "📅 日期: " . Carbon::now()->format('Y-m-d') . "\n\n";
         
         // 显示今日流量使用
