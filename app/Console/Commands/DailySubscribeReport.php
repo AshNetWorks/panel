@@ -4,539 +4,300 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
-use App\Jobs\SendTelegramJob;
+use Illuminate\Support\Facades\Redis;
+use App\Services\TelegramService;
 use Carbon\Carbon;
 
 class DailySubscribeReport extends Command
 {
-    protected $signature = 'report:daily-subscribe
-                            {--date= : 指定报告日期(Y-m-d格式,默认昨天)}
-                            {--admin-tg= : 指定管理员TG ID}
-                            {--enhanced : 启用增强模式，包含更多统计信息}';
-
-    protected $description = '生成每日订阅拉取报告并发送给管理员';
+    protected $signature = 'report:daily-subscribe {--date= : 指定报告日期(Y-m-d格式，默认昨天)}';
+    protected $description = '每日订阅安全巡检报告';
 
     public function handle()
     {
-        // ✅ 确定报告日期（默认昨天）
         $reportDate = $this->option('date')
             ? Carbon::createFromFormat('Y-m-d', $this->option('date'))->startOfDay()
             : Carbon::yesterday()->startOfDay();
 
-        // ✅ 统计时间范围（Unix 时间戳）
-        $startTimestamp = $reportDate->copy()->startOfDay()->timestamp;
-        $endTimestamp = $reportDate->copy()->endOfDay()->timestamp;
+        $start = $reportDate->copy()->startOfDay();
+        $end   = $reportDate->copy()->endOfDay();
 
-        // ✅ 对比时间范围（Unix 时间戳）
-        $compareStartTimestamp = $reportDate->copy()->subDay()->startOfDay()->timestamp;
-        $compareEndTimestamp = $reportDate->copy()->subDay()->endOfDay()->timestamp;
-
-        $adminTelegramId = $this->option('admin-tg') ?: $this->getSystemAdminTelegramId();
-        $enhanced = $this->option('enhanced');
-
-        $this->info("📊 生成 {$reportDate->format('Y-m-d')} 的订阅拉取报告");
-        $this->info("   统计范围: " . date('Y-m-d H:i:s', $startTimestamp) . " ~ " . date('Y-m-d H:i:s', $endTimestamp));
-        $this->info("   对比范围: " . date('Y-m-d H:i:s', $compareStartTimestamp) . " ~ " . date('Y-m-d H:i:s', $compareEndTimestamp));
+        $this->info("生成 {$reportDate->format('Y-m-d')} 安全巡检报告...");
 
         try {
-            // 生成报告数据
-            $reportData = $this->generateReportData(
-                $startTimestamp, $endTimestamp,
-                $compareStartTimestamp, $compareEndTimestamp,
-                $enhanced
-            );
-
-            // 构建消息
-            $message = $enhanced
-                ? $this->buildEnhancedMessage($reportData, $reportDate)
-                : $this->buildSimpleMessage($reportData, $reportDate);
-
-            // 发送报告
-            if ($adminTelegramId) {
-                $this->sendToAdmin($adminTelegramId, $message);
-                $this->info("✅ 报告已发送到管理员 TG: {$adminTelegramId}");
-            } else {
-                if ($this->sendToAllAdmins($message)) {
-                    $this->info("✅ 已发送给所有管理员");
-                } else {
-                    $this->warn("⚠️ 未找到管理员TG ID，报告未发送");
-                    $this->line($message);
-                }
-            }
-
-            // 记录日志
-            $this->logReportActivity($reportData, $reportDate, $enhanced);
+            $message = $this->buildSecurityReport($start, $end, $reportDate);
+            $this->sendToAllAdmins($message, $reportDate);
+            $this->info('✅ 报告已发送');
             return 0;
-
         } catch (\Exception $e) {
-            $this->error("生成报告失败: " . $e->getMessage());
-            \Log::error("每日订阅报告生成失败", [
-                'date' => $reportDate->format('Y-m-d'),
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
+            $this->error('生成失败: ' . $e->getMessage());
+            \Illuminate\Support\Facades\Log::error('每日订阅安全报告失败', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             return 1;
         }
     }
 
-    /**
-     * 生成时间兼容的 SQL 条件
-     * 兼容 created_at 为 Unix 时间戳（整数）或 datetime 字符串
-     */
-    private function getTimeCondition($startTimestamp, $endTimestamp)
+    private function buildSecurityReport(Carbon $start, Carbon $end, Carbon $reportDate): string
     {
-        // 如果 created_at 长度为10，说明是 Unix 时间戳；否则转换为时间戳
-        $sqlTime = "IF(LENGTH(created_at)=10, created_at, UNIX_TIMESTAMP(created_at))";
-        return "{$sqlTime} >= {$startTimestamp} AND {$sqlTime} <= {$endTimestamp}";
-    }
+        $alerts = [];
+        $lines  = [];
 
-    /**
-     * 生成报告数据
-     */
-    private function generateReportData($startTimestamp, $endTimestamp, $compareStartTimestamp, $compareEndTimestamp, $enhanced = false)
-    {
-        $data = [];
-
-        // 时间条件 SQL（兼容整数和字符串格式）
-        $timeCondition = $this->getTimeCondition($startTimestamp, $endTimestamp);
-        $compareTimeCondition = $this->getTimeCondition($compareStartTimestamp, $compareEndTimestamp);
-
-        // 1. 基础统计（当日）
-        $this->line("1/6 基础统计...");
-        $data['basic'] = DB::table('v2_subscribe_pull_log')
-            ->whereRaw($timeCondition)
-            ->selectRaw('
-                COUNT(*) as total_pulls,
-                COUNT(DISTINCT user_id) as unique_users,
-                COUNT(DISTINCT ip) as unique_ips
-            ')
+        // ── 基础概览 ──────────────────────────────────────────
+        $overview = DB::table('v2_subscribe_pull_log')
+            ->whereBetween('created_at', [$start, $end])
+            ->selectRaw('COUNT(*) as total, COUNT(DISTINCT user_id) as users, COUNT(DISTINCT ip) as ips, SUM(blocked) as blocked')
             ->first();
 
-        // 2. 对比统计（前一天）
-        $this->line("2/6 对比统计...");
-        $data['compare'] = DB::table('v2_subscribe_pull_log')
-            ->whereRaw($compareTimeCondition)
-            ->selectRaw('
-                COUNT(*) as total_pulls,
-                COUNT(DISTINCT user_id) as unique_users,
-                COUNT(DISTINCT ip) as unique_ips
-            ')
-            ->first();
-
-        // 3. 操作系统统计
-        $this->line("3/6 操作系统统计...");
-        $data['top_os'] = DB::table('v2_subscribe_pull_log')
-            ->whereRaw($timeCondition)
-            ->whereNotNull('os')
-            ->where('os', '!=', '')
-            ->selectRaw('LEFT(TRIM(os), 30) as os_name, COUNT(*) as count')
-            ->groupBy('os_name')
-            ->orderBy('count', 'desc')
-            ->limit(5)
-            ->get();
-
-        // 4. 地区统计
-        $this->line("4/6 地区统计...");
-        $data['top_countries'] = DB::table('v2_subscribe_pull_log')
-            ->whereRaw($timeCondition)
-            ->whereNotNull('country')
-            ->where('country', '!=', '')
-            ->selectRaw('LEFT(TRIM(country), 20) as country_name, COUNT(*) as count, COUNT(DISTINCT user_id) as users')
-            ->groupBy('country_name')
-            ->orderBy('count', 'desc')
-            ->limit(5)
-            ->get();
-
-        // 增强模式额外统计
-        if ($enhanced) {
-            // 5. 按小时统计（需要处理时间格式）
-            $this->line("5/6 时段统计...");
-            $sqlHour = "IF(LENGTH(created_at)=10, HOUR(FROM_UNIXTIME(created_at)), HOUR(created_at))";
-            $data['hourly'] = DB::table('v2_subscribe_pull_log')
-                ->whereRaw($timeCondition)
-                ->selectRaw("{$sqlHour} as hour, COUNT(*) as pulls")
-                ->groupBy('hour')
-                ->orderBy('hour')
-                ->get()
-                ->keyBy('hour');
-
-            // 6. 活跃用户Top10
-            $this->line("6/6 活跃用户统计...");
-            $topUserStats = DB::table('v2_subscribe_pull_log')
-                ->whereRaw($timeCondition)
-                ->whereNotNull('user_id')
-                ->selectRaw('user_id, COUNT(*) as pulls, COUNT(DISTINCT ip) as unique_ips')
-                ->groupBy('user_id')
-                ->orderBy('pulls', 'desc')
-                ->limit(10)
-                ->get();
-
-            // 获取用户邮箱
-            $userIds = $topUserStats->pluck('user_id')->toArray();
-            $users = [];
-            if (!empty($userIds)) {
-                $users = DB::table('v2_user')
-                    ->whereIn('id', $userIds)
-                    ->pluck('email', 'id')
-                    ->toArray();
-            }
-
-            $data['top_users'] = $topUserStats->map(function($item) use ($users) {
-                return (object)[
-                    'email' => $this->maskEmail($users[$item->user_id] ?? 'Unknown'),
-                    'pulls' => $item->pulls,
-                    'unique_ips' => $item->unique_ips
-                ];
-            });
-
-            // 7. 异常IP检测（同一IP多用户使用）
-            $data['suspicious_ips'] = DB::table('v2_subscribe_pull_log')
-                ->whereRaw($timeCondition)
-                ->whereNotNull('ip')
-                ->selectRaw('
-                    ip,
-                    LEFT(COALESCE(country, "Unknown"), 15) as country_name,
-                    COUNT(DISTINCT user_id) as unique_users,
-                    COUNT(*) as total_pulls
-                ')
-                ->groupBy('ip', 'country_name')
-                ->having('unique_users', '>', 3)
-                ->orderBy('unique_users', 'desc')
-                ->limit(5)
-                ->get();
-
-            // 8. 省份分布统计
-            $data['top_provinces'] = DB::table('v2_subscribe_pull_log')
-                ->whereRaw($timeCondition)
-                ->whereNotNull('province')
-                ->where('province', '!=', '')
-                ->where('province', '!=', '未知')
-                ->selectRaw('LEFT(TRIM(province), 20) as province_name, COUNT(*) as count, COUNT(DISTINCT user_id) as users')
-                ->groupBy('province_name')
-                ->orderBy('count', 'desc')
-                ->limit(10)
-                ->get();
+        $lines[] = "📋 *概览*";
+        $lines[] = "拉取总次数：{$overview->total}　活跃用户：{$overview->users}　独立IP：{$overview->ips}";
+        if ($overview->blocked > 0) {
+            $lines[] = "🚫 被拦截请求：{$overview->blocked} 次";
         }
 
-        $this->info("✅ 报告数据生成完成");
-        return $data;
-    }
+        // ── 封禁动态 ──────────────────────────────────────────
+        $newBans = DB::table('v2_subscribe_pull_log')
+            ->whereBetween('created_at', [$start, $end])
+            ->where('blocked', 1)
+            ->whereIn('block_reason', ['ip_limit', 'rate_limit'])
+            ->selectRaw('block_reason, COUNT(DISTINCT user_id) as cnt')
+            ->groupBy('block_reason')
+            ->get()
+            ->keyBy('block_reason');
 
-    /**
-     * 构建简单版消息
-     */
-    private function buildSimpleMessage($data, $reportDate)
-    {
-        $basic = $data['basic'];
-        $compare = $data['compare'];
+        $currentlyBanned = $this->countCurrentlyBanned();
 
-        // 计算变化
-        $pullsChange = $basic->total_pulls - $compare->total_pulls;
-        $usersChange = $basic->unique_users - $compare->unique_users;
-
-        $message = "📊 *每日订阅拉取报告*\n";
-        $message .= "📅 日期：`{$reportDate->format('Y年m月d日')}`\n";
-        $message .= "━━━━━━━━━━━━━━━━━━\n\n";
-
-        // 核心数据
-        $message .= "📈 *核心数据*\n";
-        $message .= "🔄 总拉取次数：`{$basic->total_pulls}`" . $this->formatChange($pullsChange) . "\n";
-        $message .= "👥 活跃用户数：`{$basic->unique_users}`" . $this->formatChange($usersChange) . "\n";
-        $message .= "🌐 独立IP数：`{$basic->unique_ips}`\n";
-
-        if ($basic->unique_users > 0) {
-            $avgPulls = round($basic->total_pulls / $basic->unique_users, 1);
-            $message .= "📱 人均拉取：`{$avgPulls}`次\n";
-        }
-        $message .= "\n";
-
-        // 操作系统
-        if ($data['top_os']->isNotEmpty()) {
-            $message .= "💻 *热门系统*\n";
-            foreach ($data['top_os'] as $index => $os) {
-                $message .= ($index + 1) . ". {$os->os_name}：{$os->count}次\n";
+        $lines[] = "";
+        $lines[] = "🔒 *封禁动态*";
+        $ipBanCnt   = $newBans->get('ip_limit')->cnt   ?? 0;
+        $rateBanCnt = $newBans->get('rate_limit')->cnt ?? 0;
+        if ($ipBanCnt || $rateBanCnt) {
+            $lines[] = "今日新增封禁：IP超限 {$ipBanCnt} 人 / 频率超限 {$rateBanCnt} 人";
+            if ($ipBanCnt + $rateBanCnt >= 5) {
+                $alerts[] = "⚠️ 今日封禁人数较多（" . ($ipBanCnt + $rateBanCnt) . " 人），请关注是否有订阅泄露";
             }
-            $message .= "\n";
-        }
-
-        // 地区分布
-        if ($data['top_countries']->isNotEmpty()) {
-            $message .= "🗺️ *热门地区*\n";
-            foreach ($data['top_countries'] as $index => $country) {
-                $message .= ($index + 1) . ". {$country->country_name}：{$country->count}次 ({$country->users}人)\n";
-            }
-            $message .= "\n";
-        }
-
-        $message .= "━━━━━━━━━━━━━━━━━━\n";
-        $message .= "⏱️ 生成时间：" . Carbon::now()->format('Y-m-d H:i:s');
-
-        return $message;
-    }
-
-    /**
-     * 构建增强版消息
-     */
-    private function buildEnhancedMessage($data, $reportDate)
-    {
-        $basic = $data['basic'];
-        $compare = $data['compare'];
-
-        // 计算变化
-        $pullsChange = $basic->total_pulls - $compare->total_pulls;
-        $pullsPercent = $compare->total_pulls > 0
-            ? round(($pullsChange / $compare->total_pulls) * 100, 1)
-            : 0;
-
-        $message = "📊 *每日订阅拉取报告 (增强版)*\n";
-        $message .= "📅 日期：`{$reportDate->format('Y年m月d日')}`\n";
-        $message .= "━━━━━━━━━━━━━━━━━━\n\n";
-
-        // 核心数据
-        $message .= "📈 *核心数据*\n";
-        $message .= "🔄 总拉取次数：`{$basic->total_pulls}`";
-        $message .= $this->formatChangeWithPercent($pullsChange, $pullsPercent) . "\n";
-        $message .= "👥 活跃用户数：`{$basic->unique_users}`\n";
-        $message .= "🌐 独立IP数：`{$basic->unique_ips}`\n";
-
-        if ($basic->unique_users > 0) {
-            $avgPulls = round($basic->total_pulls / $basic->unique_users, 1);
-            $message .= "📱 人均拉取：`{$avgPulls}`次\n";
-        }
-        $message .= "\n";
-
-        // 时段分析
-        if (!empty($data['hourly']) && $data['hourly']->isNotEmpty()) {
-            $message .= "⏰ *时段分析*\n";
-
-            $peakHour = $data['hourly']->sortByDesc('pulls')->first();
-            $lowHour = $data['hourly']->sortBy('pulls')->first();
-
-            if ($peakHour) {
-                $message .= "🔥 高峰时段：`{$peakHour->hour}:00` ({$peakHour->pulls}次)\n";
-            }
-            if ($lowHour) {
-                $message .= "🌙 低峰时段：`{$lowHour->hour}:00` ({$lowHour->pulls}次)\n";
-            }
-
-            // 生成简化的24小时分布图
-            $message .= "📊 分布：`";
-            $maxPulls = $data['hourly']->max('pulls') ?: 1;
-            for ($h = 0; $h < 24; $h += 3) {
-                $hourData = $data['hourly']->get($h);
-                $pulls = $hourData ? $hourData->pulls : 0;
-                $bar = $this->getHourBar($pulls, $maxPulls);
-                $message .= sprintf("%02d%s ", $h, $bar);
-            }
-            $message .= "`\n\n";
-        }
-
-        // 操作系统
-        if ($data['top_os']->isNotEmpty()) {
-            $message .= "💻 *操作系统 Top5*\n";
-            foreach ($data['top_os'] as $index => $os) {
-                $percent = $basic->total_pulls > 0
-                    ? round(($os->count / $basic->total_pulls) * 100, 1)
-                    : 0;
-                $message .= ($index + 1) . ". {$os->os_name}：{$os->count}次 ({$percent}%)\n";
-            }
-            $message .= "\n";
-        }
-
-        // 地区分布
-        if ($data['top_countries']->isNotEmpty()) {
-            $message .= "🗺️ *地区分布 Top5*\n";
-            foreach ($data['top_countries'] as $index => $country) {
-                $message .= ($index + 1) . ". {$country->country_name}：{$country->count}次 ({$country->users}人)\n";
-            }
-            $message .= "\n";
-        }
-
-        // 省份分布（新增）
-        if (!empty($data['top_provinces']) && $data['top_provinces']->isNotEmpty()) {
-            $message .= "🏛️ *省份分布 Top10*\n";
-            foreach ($data['top_provinces'] as $index => $province) {
-                $message .= ($index + 1) . ". {$province->province_name}：{$province->count}次 ({$province->users}人)\n";
-            }
-            $message .= "\n";
-        }
-
-        // 活跃用户
-        if (!empty($data['top_users']) && $data['top_users']->isNotEmpty()) {
-            $message .= "🏆 *活跃用户 Top10*\n";
-            foreach ($data['top_users'] as $index => $user) {
-                $riskIcon = $user->unique_ips > 5 ? "⚠️" : "";
-                $message .= ($index + 1) . ". {$user->email}{$riskIcon} - {$user->pulls}次/{$user->unique_ips}IP\n";
-            }
-            $message .= "\n";
-        }
-
-        // 异常IP检测
-        if (!empty($data['suspicious_ips']) && $data['suspicious_ips']->isNotEmpty()) {
-            $message .= "🚨 *异常IP检测*\n";
-            foreach ($data['suspicious_ips'] as $ip) {
-                $riskLevel = $ip->unique_users > 10 ? '🔴' : ($ip->unique_users > 5 ? '🟠' : '🟡');
-                $message .= "{$riskLevel} {$ip->ip} ({$ip->country_name})\n";
-                $message .= "   {$ip->unique_users}用户 | {$ip->total_pulls}次拉取\n";
-            }
-            $message .= "\n";
-        }
-
-        // 趋势分析
-        $message .= "📈 *趋势分析*\n";
-        if ($pullsPercent > 20) {
-            $message .= "🚀 拉取量大幅增长 (+{$pullsPercent}%)\n";
-        } elseif ($pullsPercent > 10) {
-            $message .= "📈 拉取量稳步增长 (+{$pullsPercent}%)\n";
-        } elseif ($pullsPercent < -20) {
-            $message .= "📉 拉取量大幅下降 ({$pullsPercent}%)\n";
-        } elseif ($pullsPercent < -10) {
-            $message .= "⚠️ 拉取量有所下降 ({$pullsPercent}%)\n";
         } else {
-            $message .= "📊 拉取量保持稳定\n";
+            $lines[] = "今日无新增封禁";
+        }
+        $lines[] = "当前仍封禁中：{$currentlyBanned} 人";
+
+        $selfUnban = DB::table('v2_subscribe_unban_log')
+            ->whereBetween('created_at', [$start, $end])
+            ->count();
+        if ($selfUnban > 0) {
+            $lines[] = "今日自助解封：{$selfUnban} 次";
         }
 
-        $message .= "\n━━━━━━━━━━━━━━━━━━\n";
-        $message .= "⏱️ 生成时间：" . Carbon::now()->format('Y-m-d H:i:s');
+        // ── 高风险用户（疑似分享订阅）──────────────────────────
+        $ipLimit       = (int)config('v2board.sub_ip_limit_count', 10);
+        $warnThreshold = max(1, $ipLimit - 2);
 
-        return $message;
-    }
+        $highRiskUsers = DB::table('v2_subscribe_pull_log')
+            ->whereBetween('created_at', [$start, $end])
+            ->selectRaw('user_id, COUNT(*) as pulls, COUNT(DISTINCT ip) as unique_ips')
+            ->groupBy('user_id')
+            ->having('unique_ips', '>=', $warnThreshold)
+            ->orderByDesc('unique_ips')
+            ->limit(10)
+            ->get();
 
-    /**
-     * 格式化变化值
-     */
-    private function formatChange($change)
-    {
-        if ($change > 0) {
-            return " 📈+{$change}";
-        } elseif ($change < 0) {
-            return " 📉{$change}";
-        }
-        return "";
-    }
+        if ($highRiskUsers->isNotEmpty()) {
+            $userIds = $highRiskUsers->pluck('user_id')->toArray();
+            $emails  = DB::table('v2_user')->whereIn('id', $userIds)->pluck('email', 'id');
 
-    /**
-     * 格式化变化值（带百分比）
-     */
-    private function formatChangeWithPercent($change, $percent)
-    {
-        if ($change > 0) {
-            return " 📈+{$change} (+{$percent}%)";
-        } elseif ($change < 0) {
-            return " 📉{$change} ({$percent}%)";
-        }
-        return " ➖0";
-    }
+            $lines[] = "";
+            $lines[] = "🚨 *高风险用户（独立IP接近/超限，疑似分享订阅）*";
+            foreach ($highRiskUsers as $u) {
+                $email    = $emails[$u->user_id] ?? "uid:{$u->user_id}";
+                $isBanned = Redis::exists('sub:banned:' . $u->user_id) ? ' 🔴已封' : '';
+                $riskTag  = $u->unique_ips >= $ipLimit ? '🔴' : '🟠';
+                $lines[]  = "{$riskTag} {$email}　{$u->unique_ips}/{$ipLimit} IP　{$u->pulls}次{$isBanned}";
+            }
 
-    /**
-     * 获取小时柱状图字符
-     */
-    private function getHourBar($value, $max)
-    {
-        if ($max == 0) return '▁';
-        $ratio = $value / $max;
-        if ($ratio >= 0.8) return '█';
-        if ($ratio >= 0.6) return '▆';
-        if ($ratio >= 0.4) return '▄';
-        if ($ratio >= 0.2) return '▂';
-        return '▁';
-    }
-
-    /**
-     * 邮箱脱敏
-     */
-    private function maskEmail($email)
-    {
-        if (!$email || $email === 'Unknown') {
-            return '未知用户';
+            if ($highRiskUsers->count() >= 3) {
+                $alerts[] = "🚨 有 {$highRiskUsers->count()} 名用户独立IP达到高风险阈值，请重点核查";
+            }
         }
 
-        if (strpos($email, '@') === false) {
-            return substr($email, 0, 8) . '***';
+        // ── 共享IP（最直接的泄露信号）──────────────────────────
+        $sharedIps = DB::table('v2_subscribe_pull_log')
+            ->whereBetween('created_at', [$start, $end])
+            ->whereNotNull('ip')
+            ->selectRaw('ip, COUNT(DISTINCT user_id) as user_cnt, COUNT(*) as pulls, MAX(country) as country, MAX(isp) as isp')
+            ->groupBy('ip')
+            ->having('user_cnt', '>=', 2)
+            ->orderByDesc('user_cnt')
+            ->limit(10)
+            ->get();
+
+        if ($sharedIps->isNotEmpty()) {
+            $lines[] = "";
+            $lines[] = "🔍 *共享IP检测（同一IP多用户，强烈疑似订阅泄露）*";
+            foreach ($sharedIps as $row) {
+                $location = trim(($row->country ?? '') . ' ' . ($row->isp ?? ''));
+                $riskTag  = $row->user_cnt >= 5 ? '🔴' : ($row->user_cnt >= 3 ? '🟠' : '🟡');
+                $lines[]  = "{$riskTag} {$row->ip}　{$row->user_cnt} 用户 / {$row->pulls} 次" .
+                            ($location ? "　{$location}" : '');
+
+                $ipUsers = DB::table('v2_subscribe_pull_log as l')
+                    ->join('v2_user as u', 'u.id', '=', 'l.user_id')
+                    ->whereBetween('l.created_at', [$start, $end])
+                    ->where('l.ip', $row->ip)
+                    ->selectRaw('u.email')
+                    ->distinct()
+                    ->limit(5)
+                    ->pluck('email');
+
+                foreach ($ipUsers as $email) {
+                    $lines[] = "　　· {$email}";
+                }
+            }
+
+            if ($sharedIps->where('user_cnt', '>=', 3)->count() > 0) {
+                $alerts[] = "🔴 发现 {$sharedIps->count()} 个IP被多人共用，存在订阅链接泄露风险";
+            }
         }
 
-        $parts = explode('@', $email);
-        $username = $parts[0];
-        $domain = $parts[1] ?? '';
+        // ── 境外访问 ──────────────────────────────────────────
+        $foreignAccess = DB::table('v2_subscribe_pull_log')
+            ->whereBetween('created_at', [$start, $end])
+            ->whereNotNull('country')
+            ->where('country', '!=', '中国')
+            ->where('country', '!=', '')
+            ->selectRaw('country, COUNT(DISTINCT user_id) as users, COUNT(*) as pulls')
+            ->groupBy('country')
+            ->orderByDesc('users')
+            ->limit(5)
+            ->get();
 
-        if (strlen($username) <= 2) {
-            return $username . '***@' . $domain;
+        if ($foreignAccess->isNotEmpty()) {
+            $lines[] = "";
+            $lines[] = "🌍 *境外访问分布*";
+            foreach ($foreignAccess as $row) {
+                $lines[] = "· {$row->country}　{$row->users} 用户 / {$row->pulls} 次";
+            }
         }
 
-        return substr($username, 0, 2) . '***@' . $domain;
-    }
-
-    /**
-     * 获取系统管理员TG ID
-     */
-    private function getSystemAdminTelegramId()
-    {
-        return DB::table('v2_user')
-            ->where('is_admin', 1)
-            ->whereNotNull('telegram_id')
-            ->where('banned', 0)
-            ->value('telegram_id');
-    }
-
-    /**
-     * 发送给指定管理员
-     */
-    private function sendToAdmin($telegramId, $message)
-    {
-        SendTelegramJob::dispatch($telegramId, $message);
-        \Log::info("每日订阅报告已发送", [
-            'telegram_id' => $telegramId,
-            'date' => Carbon::now()->format('Y-m-d')
-        ]);
-    }
-
-    /**
-     * 发送给所有管理员
-     */
-    private function sendToAllAdmins($message)
-    {
-        $adminIds = DB::table('v2_user')
-            ->where(function($query) {
-                $query->where('is_admin', 1)->orWhere('is_staff', 1);
+        // ── 浏览器直接访问 ──────────────────────────────────────
+        $browserAccess = DB::table('v2_subscribe_pull_log')
+            ->whereBetween('created_at', [$start, $end])
+            ->where(function ($q) {
+                $q->where('os', 'like', 'Chrome%')
+                  ->orWhere('os', 'like', 'Safari%')
+                  ->orWhere('os', 'like', 'Firefox%')
+                  ->orWhere('os', 'like', 'Edge%');
             })
-            ->whereNotNull('telegram_id')
-            ->where('banned', 0)
-            ->pluck('telegram_id')
-            ->toArray();
+            ->selectRaw('COUNT(DISTINCT user_id) as users, COUNT(*) as pulls')
+            ->first();
 
-        if (empty($adminIds)) {
-            return false;
+        if ($browserAccess && $browserAccess->pulls > 0) {
+            $lines[] = "";
+            $lines[] = "🌐 *浏览器直接访问订阅链接*";
+            $lines[] = "{$browserAccess->users} 人 / {$browserAccess->pulls} 次（注意是否截图分享）";
+            if ($browserAccess->users >= 3) {
+                $alerts[] = "⚠️ {$browserAccess->users} 人通过浏览器查看了订阅链接，存在截图泄露风险";
+            }
         }
 
-        foreach ($adminIds as $telegramId) {
-            SendTelegramJob::dispatch($telegramId, $message);
+        // ── 拼接 ──────────────────────────────────────────────
+        $header = "🛡 *订阅安全日报 · {$reportDate->format('Y-m-d')}*\n" .
+                  "━━━━━━━━━━━━━━━━━━\n";
+
+        $alertBlock = '';
+        if (!empty($alerts)) {
+            $alertBlock = "\n❗ *今日重点提示*\n" . implode("\n", $alerts) . "\n\n━━━━━━━━━━━━━━━━━━\n";
         }
 
-        return true;
+        $footer = "\n━━━━━━━━━━━━━━━━━━\n⏱ " . Carbon::now()->format('Y-m-d H:i:s');
+
+        return $header . $alertBlock . implode("\n", $lines) . $footer;
     }
 
     /**
-     * 记录报告活动日志
+     * 按 \n\n 段落切分，每页不超过 3500 字符
      */
-    private function logReportActivity($data, $reportDate, $enhanced)
+    private function paginate(string $content, int $maxLen = 3500): array
+    {
+        if (mb_strlen($content) <= $maxLen) {
+            return [$content];
+        }
+
+        $sections = explode("\n\n", $content);
+        $pages    = [];
+        $current  = '';
+
+        foreach ($sections as $section) {
+            $candidate = $current === '' ? $section : $current . "\n\n" . $section;
+            if (mb_strlen($candidate) > $maxLen) {
+                if ($current !== '') {
+                    $pages[] = $current;
+                }
+                $current = $section;
+            } else {
+                $current = $candidate;
+            }
+        }
+        if ($current !== '') {
+            $pages[] = $current;
+        }
+
+        return $pages ?: [$content];
+    }
+
+    /**
+     * 构建翻页键盘
+     */
+    private function buildPageKeyboard(string $cacheKey, int $current, int $total): array
+    {
+        $buttons = [];
+        if ($current > 0) {
+            $buttons[] = ['text' => '◀ 上一页', 'callback_data' => "rpt_page:{$cacheKey}:{$current}:prev"];
+        }
+        $buttons[] = ['text' => ($current + 1) . ' / ' . $total, 'callback_data' => 'rpt_noop'];
+        if ($current < $total - 1) {
+            $buttons[] = ['text' => '下一页 ▶', 'callback_data' => "rpt_page:{$cacheKey}:{$current}:next"];
+        }
+        return ['inline_keyboard' => [$buttons]];
+    }
+
+    /**
+     * 发送给所有管理员，超长内容分页并附翻页按钮
+     */
+    private function sendToAllAdmins(string $message, Carbon $reportDate): void
+    {
+        $admins = DB::table('v2_user')
+            ->where(function ($q) { $q->where('is_admin', 1)->orWhere('is_staff', 1); })
+            ->whereNotNull('telegram_id')
+            ->where('banned', 0)
+            ->pluck('telegram_id');
+
+        $ts  = new TelegramService();
+        $pages = $this->paginate($message);
+
+        foreach ($admins as $tid) {
+            if (count($pages) === 1) {
+                // 单页直接发送
+                $ts->sendMessage((int)$tid, $pages[0], 'markdown');
+                continue;
+            }
+
+            // 多页：存入 Redis，发第一页 + 翻页按钮
+            $cacheKey = md5($tid . $reportDate->format('Ymd'));
+            Redis::setex('rpt:pages:' . $cacheKey, 48 * 3600, json_encode($pages));
+
+            $ts->sendMessage(
+                (int)$tid,
+                $pages[0],
+                'markdown',
+                $this->buildPageKeyboard($cacheKey, 0, count($pages))
+            );
+        }
+    }
+
+    private function countCurrentlyBanned(): int
     {
         try {
-            $logData = [
-                'date' => $reportDate->format('Y-m-d'),
-                'total_pulls' => $data['basic']->total_pulls ?? 0,
-                'unique_users' => $data['basic']->unique_users ?? 0,
-                'mode' => $enhanced ? 'enhanced' : 'simple',
-                'generated_at' => Carbon::now()->toIso8601String()
-            ];
-
-            DB::table('v2_system_log')->insert([
-                'action' => 'daily_subscribe_report',
-                'description' => "每日订阅报告：{$reportDate->format('Y-m-d')}" . ($enhanced ? ' (增强版)' : ''),
-                'data' => json_encode($logData, JSON_UNESCAPED_UNICODE),
-                'created_at' => now()
-            ]);
-        } catch (\Exception $e) {
-            \Log::warning("记录报告日志失败: " . $e->getMessage());
+            return count(Redis::keys('sub:banned:*'));
+        } catch (\Exception) {
+            return 0;
         }
     }
 }

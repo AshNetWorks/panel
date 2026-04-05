@@ -713,6 +713,17 @@ EOT;
 
         if (!$fromId || !$chatId || !$messageId) return;
 
+        // 报告翻页回调
+        if ($callbackData === 'rpt_noop') {
+            $this->telegramService->answerCallbackQuery($cqId, '');
+            return;
+        }
+
+        if (strpos($callbackData, 'rpt_page:') === 0) {
+            $this->handleReportPageCallback($cqId, $chatId, $messageId, $callbackData);
+            return;
+        }
+
         // 只处理 sub_unban: 前缀的回调
         if (strpos($callbackData, 'sub_unban:') !== 0) return;
 
@@ -772,6 +783,51 @@ EOT;
                 'html'
             );
         }
+    }
+
+    /**
+     * 处理报告翻页回调
+     * callback_data 格式：rpt_page:{cacheKey}:{currentPage}:{prev|next}
+     */
+    private function handleReportPageCallback(string $cqId, int $chatId, int $messageId, string $callbackData): void
+    {
+        $parts = explode(':', $callbackData);
+        if (count($parts) !== 4) {
+            $this->telegramService->answerCallbackQuery($cqId, '参数错误', true);
+            return;
+        }
+
+        [, $cacheKey, $currentPage, $direction] = $parts;
+        $currentPage = (int)$currentPage;
+        $newPage     = $direction === 'next' ? $currentPage + 1 : $currentPage - 1;
+
+        $pagesJson = \Illuminate\Support\Facades\Redis::get('rpt:pages:' . $cacheKey);
+        if (!$pagesJson) {
+            $this->telegramService->answerCallbackQuery($cqId, '报告已过期，请等待明日新报告', true);
+            return;
+        }
+
+        $pages = json_decode($pagesJson, true);
+        $total = count($pages);
+
+        if ($newPage < 0 || $newPage >= $total) {
+            $this->telegramService->answerCallbackQuery($cqId, '已经是第一页/最后一页了');
+            return;
+        }
+
+        // 构建翻页键盘
+        $buttons = [];
+        if ($newPage > 0) {
+            $buttons[] = ['text' => '◀ 上一页', 'callback_data' => "rpt_page:{$cacheKey}:{$newPage}:prev"];
+        }
+        $buttons[] = ['text' => ($newPage + 1) . ' / ' . $total, 'callback_data' => 'rpt_noop'];
+        if ($newPage < $total - 1) {
+            $buttons[] = ['text' => '下一页 ▶', 'callback_data' => "rpt_page:{$cacheKey}:{$newPage}:next"];
+        }
+        $keyboard = ['inline_keyboard' => [$buttons]];
+
+        $this->telegramService->answerCallbackQuery($cqId, '');
+        $this->telegramService->editMessageText($chatId, $messageId, $pages[$newPage], 'markdown', $keyboard);
     }
 
     /**
