@@ -333,8 +333,8 @@ class Soha extends Telegram
         $traffic = $this->formatTraffic($checkin->traffic_amount);
         $user = User::find($checkin->user_id);
 
-        if ($user) {
-            $name = $this->escape(strstr($user->email, '@', true) ?: $user->email);
+        if ($user && $user->telegram_id) {
+            $name = $this->getDisplayName($user->telegram_id, $telegramService);
             return "{$label} {$name} {$prefix}{$traffic}";
         }
 

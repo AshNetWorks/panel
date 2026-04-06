@@ -7,6 +7,7 @@ use App\Models\UserCheckin;
 use App\Services\TelegramService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 class DailyCheckinReport extends Command
 {
@@ -64,8 +65,8 @@ class DailyCheckinReport extends Command
             if ($luckyCheckin) {
                 $luckyTraffic = $this->formatTraffic($luckyCheckin->traffic_amount);
                 $msg .= "👑 *昨日欧皇*\n";
-                if ($luckyUser) {
-                    $luckyUserName = strstr($luckyUser->email, '@', true) ?: $luckyUser->email;
+                if ($luckyUser && $luckyUser->telegram_id) {
+                    $luckyUserName = $this->getTelegramDisplayName($luckyUser->telegram_id, $telegramService);
                     $msg .= "• {$luckyUserName}\n";
                 }
                 $msg .= "• 获得流量：+{$luckyTraffic}\n\n";
@@ -79,8 +80,8 @@ class DailyCheckinReport extends Command
             if ($unluckyCheckin) {
                 $unluckyTraffic = $this->formatTraffic($unluckyCheckin->traffic_amount);
                 $msg .= "🤡 *昨日非酋*\n";
-                if ($unluckyUser) {
-                    $unluckyUserName = strstr($unluckyUser->email, '@', true) ?: $unluckyUser->email;
+                if ($unluckyUser && $unluckyUser->telegram_id) {
+                    $unluckyUserName = $this->getTelegramDisplayName($unluckyUser->telegram_id, $telegramService);
                     $msg .= "• {$unluckyUserName}\n";
                 }
                 $msg .= "• 损失流量：-{$unluckyTraffic}\n\n";
@@ -127,12 +128,53 @@ class DailyCheckinReport extends Command
 
         } catch (\Exception $e) {
             $this->error('发生错误: ' . $e->getMessage());
-            \Log::error('每日签到播报失败', [
+            Log::error('每日签到播报失败', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
             return 1;
         }
+    }
+
+    /**
+     * 通过 Telegram ID 获取显示名称（username 优先，否则 first_name）
+     */
+    private function getTelegramDisplayName($telegramId, $telegramService): string
+    {
+        if (!$telegramId) {
+            return 'User';
+        }
+        try {
+            $chat = $telegramService->getChat($telegramId);
+            if ($chat) {
+                if (!empty($chat->username)) {
+                    return '@' . $chat->username;
+                }
+                $name = trim(($chat->first_name ?? '') . ' ' . ($chat->last_name ?? ''));
+                if ($name !== '') {
+                    return $this->escapeName($name);
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('DailyCheckinReport: 获取 Telegram 用户信息失败', [
+                'telegram_id' => $telegramId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+        return 'User ' . $telegramId;
+    }
+
+    /**
+     * 转义名称中的 Markdown 特殊字符
+     * 注意：_ 由 sendMessage('markdown') 统一转义，此处不处理，避免双重转义
+     */
+    private function escapeName(string $text): string
+    {
+        return str_replace(
+            ['*', '[', ']', '`'],
+            ['\\*', '\\[', '\\]', '\\`'],
+            $text
+        );
     }
 
     /**

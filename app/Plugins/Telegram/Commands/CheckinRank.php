@@ -142,7 +142,7 @@ class CheckinRank extends Telegram
             }
         }
         $usersMap = User::whereIn('id', array_unique($allUserIds))
-            ->select('id', 'email')
+            ->select('id', 'email', 'telegram_id')
             ->get()
             ->keyBy('id');
 
@@ -162,7 +162,7 @@ class CheckinRank extends Telegram
                     $medal = $this->getMedal($rank);
                     $rankUser = $usersMap[$item->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getDisplayName($rankUser->email);
+                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
                         $traffic = $this->formatTraffic($item->net_traffic);
                         $prefix = $item->net_traffic >= 0 ? '+' : '';
                         $msg .= "{$medal} {$userName} {$prefix}{$traffic}\n";
@@ -181,7 +181,7 @@ class CheckinRank extends Telegram
                     $medal = $this->getMedal($rank);
                     $rankUser = $usersMap[$item->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getDisplayName($rankUser->email);
+                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
                         $traffic = $this->formatTraffic($item->total_reward);
                         $msg .= "{$medal} {$userName} +{$traffic}\n";
                     }
@@ -199,7 +199,7 @@ class CheckinRank extends Telegram
                     $medal = $this->getMedal($rank);
                     $rankUser = $usersMap[$item->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getDisplayName($rankUser->email);
+                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
                         $traffic = $this->formatTraffic($item->total_penalty);
                         $msg .= "{$medal} {$userName} -{$traffic}\n";
                     }
@@ -237,7 +237,7 @@ class CheckinRank extends Telegram
                     $medal = $this->getMedal($rank);
                     $rankUser = $usersMap[$stats->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getDisplayName($rankUser->email);
+                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
                         $msg .= "{$medal} {$userName} {$stats->checkin_streak}天\n";
                     }
                 }
@@ -254,7 +254,7 @@ class CheckinRank extends Telegram
                     $medal = $this->getMedal($rank);
                     $rankUser = $usersMap[$stats->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getDisplayName($rankUser->email);
+                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
                         $msg .= "{$medal} {$userName} {$stats->total_checkin_days}天\n";
                     }
                 }
@@ -271,7 +271,7 @@ class CheckinRank extends Telegram
                     $medal = $this->getMedal($rank);
                     $rankUser = $usersMap[$stats->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getDisplayName($rankUser->email);
+                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
                         $traffic = $this->formatTraffic($stats->total_checkin_traffic);
                         $prefix = $stats->total_checkin_traffic >= 0 ? '+' : '';
                         $msg .= "{$medal} {$userName} {$prefix}{$traffic}\n";
@@ -288,7 +288,7 @@ class CheckinRank extends Telegram
                     $medal = $this->getMedal($rank);
                     $rankUser = $usersMap[$stats->user_id] ?? null;
                     if ($rankUser) {
-                        $userName = $this->getDisplayName($rankUser->email);
+                        $userName = $this->getTelegramDisplayName($rankUser->telegram_id, $telegramService);
                         $traffic = $this->formatTraffic(abs($stats->total_checkin_traffic));
                         $msg .= "{$medal} {$userName} -{$traffic}\n";
                     }
@@ -330,25 +330,44 @@ class CheckinRank extends Telegram
     }
 
     /**
-     * 用邮箱前缀作为显示名称（避免逐条调 Telegram API）
+     * 通过 Telegram ID 获取用户显示名称（username 优先，否则 first_name）
      */
-    private function getDisplayName(string $email): string
+    private function getTelegramDisplayName($telegramId, $telegramService): string
     {
-        $prefix = strstr($email, '@', true) ?: $email;
-        return $this->escapeName($prefix);
+        if (!$telegramId) {
+            return 'User';
+        }
+        try {
+            $chat = $telegramService->getChat($telegramId);
+            if ($chat) {
+                if (!empty($chat->username)) {
+                    return '@' . $chat->username;
+                }
+                $name = trim(($chat->first_name ?? '') . ' ' . ($chat->last_name ?? ''));
+                if ($name !== '') {
+                    return $this->escapeName($name);
+                }
+            }
+        } catch (\Exception $e) {
+            \Log::warning('CheckinRank: 获取 Telegram 用户信息失败', [
+                'telegram_id' => $telegramId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+        return 'User ' . $telegramId;
     }
 
     /**
-     * 转义名称中的特殊字符（仅转义会破坏格式的字符）
+     * 转义名称中不由 sendMessage 统一处理的 Markdown 特殊字符
+     * 注意：_ 由 sendMessage('markdown') 统一转义，此处不处理，避免双重转义
      */
-    private function escapeName($text)
+    private function escapeName($text): string
     {
-        // 只转义会影响 Markdown 解析的关键字符
-        $escapeChars = ['_', '*', '[', ']', '`'];
-        foreach ($escapeChars as $char) {
-            $text = str_replace($char, '\\' . $char, $text);
-        }
-        return $text;
+        return str_replace(
+            ['*', '[', ']', '`'],
+            ['\\*', '\\[', '\\]', '\\`'],
+            $text
+        );
     }
 
     /**
