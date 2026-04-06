@@ -208,10 +208,11 @@ class TelegramController extends Controller
 
         $userId = $member['id'];
         $firstName = $member['first_name'] ?? '';
+        $lastName  = $member['last_name'] ?? '';
         $username = $member['username'] ?? '';
 
-        // 创建可点击的用户链接（Markdown格式）
-        $displayName = $username ?: $firstName;
+        // 创建可点击的用户链接，优先显示 first_name + last_name
+        $displayName = trim($firstName . ' ' . $lastName) ?: $username ?: 'User';
         $userMention = "[{$displayName}](tg://user?id={$userId})";
 
         \Log::info('🎯 检测到新成员加入 (chat_member)', [
@@ -255,10 +256,11 @@ class TelegramController extends Controller
 
             $userId = $member['id'];
             $firstName = $member['first_name'] ?? '';
+            $lastName  = $member['last_name'] ?? '';
             $username = $member['username'] ?? '';
 
-            // 创建可点击的用户链接（Markdown格式）
-            $displayName = $username ?: $firstName;
+            // 创建可点击的用户链接，优先显示 first_name + last_name
+            $displayName = trim($firstName . ' ' . $lastName) ?: $username ?: 'User';
             $userMention = "[{$displayName}](tg://user?id={$userId})";
 
             \Log::info('🚀 处理新成员 (new_chat_members)', [
