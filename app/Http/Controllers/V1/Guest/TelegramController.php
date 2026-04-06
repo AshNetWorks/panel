@@ -564,18 +564,18 @@ EOT;
                     ],
                     [
                         'text' => '📖 使用文档',
-                        'url' => $appUrl . '/docs'  // 可以修改为实际的文档地址
+                        'url' => $appUrl . 'https://wiki.ash.yt'  // 可以修改为实际的文档地址
                     ]
                 ],
                 [
                     // 第二行：用户中心和客户端下载
                     [
                         'text' => '👤 用户中心',
-                        'url' => $appUrl . '/dashboard'
+                        'url' => 'https://portal.ash.do'
                     ],
                     [
                         'text' => '💻 客户端下载',
-                        'url' => $appUrl . '/download'  // 可以修改为实际的下载地址
+                        'url' => 'https://Client.ash.do'  // 可以修改为实际的下载地址
                     ]
                 ]
             ]
@@ -868,7 +868,7 @@ EOT;
                     [
                         [
                             'text' => '💻 客户端下载',
-                            'url' => $appUrl . '/download'
+                            'url' => 'https://Client.ash.do'
                         ]
                     ]
                 ]
@@ -886,7 +886,7 @@ EOT;
                         ],
                         [
                             'text' => '📖 使用文档',
-                            'url' => $appUrl . '/docs'
+                            'url' => 'https://wiki.ash.yt'
                         ]
                     ]
                 ]
