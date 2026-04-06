@@ -62,7 +62,7 @@ class Help extends Telegram
         $helpText .= "🎲 <b>签到 &amp; 娱乐</b>\n";
         $helpText .= "• /checkin — 每日签到（随机增减已用流量，50% 概率）\n";
         $helpText .= "• /checkin_rank — 查看签到排行榜（连续7天双倍奖励）\n";
-        $helpText .= "• /soha — 流量梭哈，押注 5 GB 抽倍率（每日一次）\n\n";
+        $helpText .= "• /soha — 流量梭哈，押注 5 GB 拼手气，连败有安慰奖，彩池随时爆发（每日一次）\n\n";
 
         $helpText .= "🔧 <b>账户管理</b>\n";
         $helpText .= "• /bind — 绑定订阅账户\n";
@@ -107,7 +107,8 @@ class Help extends Telegram
 
             $helpText .= "🚫 <b>用户管理</b>\n";
             $helpText .= "• /ban [邮箱] — 封禁用户\n";
-            $helpText .= "• /unban [邮箱] — 解封用户\n\n";
+            $helpText .= "• /unban [邮箱] — 解封用户\n";
+            $helpText .= "• /subunban [邮箱|ID] — 解除用户订阅封禁\n\n";
 
             $helpText .= "👁 <b>监控名单</b>\n";
             $helpText .= "• /watch add [邮箱] — 加入监控名单\n";

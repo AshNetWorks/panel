@@ -125,6 +125,7 @@ class Start extends Telegram
                 $welcomeText .= "• /set_rate [倍率] [关键词] — 调整节点倍率\n";
                 $welcomeText .= "• /ban [邮箱] — 封禁用户\n";
                 $welcomeText .= "• /unban [邮箱] — 解封用户\n";
+                $welcomeText .= "• /subunban [邮箱|ID] — 解除订阅封禁\n";
                 $welcomeText .= "• /watch add|remove|list — 监控名单管理\n";
                 $welcomeText .= "发送 /help 查看详细说明";
             }
