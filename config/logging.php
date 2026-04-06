@@ -16,7 +16,7 @@ return [
     |
     */
 
-    'default' => 'mysql',
+    'default' => env('LOG_CHANNEL', 'stack'),
 
     /*
     |--------------------------------------------------------------------------
@@ -41,8 +41,8 @@ return [
 
         'stack' => [
             'driver' => 'stack',
-            'channels' => ['daily'],
-            'ignore_exceptions' => false,
+            'channels' => ['daily', 'mysql'],
+            'ignore_exceptions' => true,  // 某一个 channel 失败（如 mysql）不影响其他 channel
         ],
 
         'single' => [
