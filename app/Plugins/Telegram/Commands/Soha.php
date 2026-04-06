@@ -372,8 +372,14 @@ class Soha extends Telegram
     {
         try {
             $chat = $telegramService->getChat($telegramId);
-            if ($chat && !empty($chat->first_name)) {
-                return $this->escape($chat->first_name);
+            if ($chat) {
+                $name = trim(($chat->first_name ?? '') . ' ' . ($chat->last_name ?? ''));
+                if ($name !== '') {
+                    return $this->escape($name);
+                }
+                if (!empty($chat->username)) {
+                    return $this->escape($chat->username);
+                }
             }
         } catch (\Exception $e) {}
         return 'User ' . $telegramId;

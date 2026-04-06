@@ -340,12 +340,12 @@ class CheckinRank extends Telegram
         try {
             $chat = $telegramService->getChat($telegramId);
             if ($chat) {
-                if (!empty($chat->username)) {
-                    return '@' . $chat->username;
-                }
                 $name = trim(($chat->first_name ?? '') . ' ' . ($chat->last_name ?? ''));
                 if ($name !== '') {
                     return $this->escapeName($name);
+                }
+                if (!empty($chat->username)) {
+                    return $this->escapeName($chat->username);
                 }
             }
         } catch (\Exception $e) {
