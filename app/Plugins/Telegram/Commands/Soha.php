@@ -214,7 +214,7 @@ class Soha extends Telegram
         // 标题横幅
         $msg  = "{$emoji} *【{$tierLabel}】梭哈结算！*\n";
         $msg .= "👤 {$userName}\n";
-        $msg .= "🎰 今日第 *{$rank}* 位梭哈　概率档位：*{$tierProb}*\n\n";
+        $msg .= "🎰 今日第 *{$rank}* 位梭哈\n\n";
 
         // 幽默描述
         $story = $this->getStory($tier, $this->formatTraffic(abs($netProfit)));
@@ -382,7 +382,7 @@ class Soha extends Telegram
                     return "[{$this->escape($display)}](tg://user?id={$telegramId})";
                 }
             }
-        } catch (\Exception $e) {
+        } catch (\Exception) {
             Log::error('获取用户信息失败', ['telegram_id' => $telegramId]);
         }
         return 'User ' . $telegramId;
@@ -401,7 +401,7 @@ class Soha extends Telegram
                     return $this->escape($chat->username);
                 }
             }
-        } catch (\Exception $e) {}
+        } catch (\Exception) {}
         return 'User ' . $telegramId;
     }
 
