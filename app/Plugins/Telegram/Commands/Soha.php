@@ -379,6 +379,13 @@ class Soha extends Telegram
         // 连败安慰奖提示
         if ($consolation > 0) {
             $msg .= "\n🤝 *连败安慰奖*（{$streak} 连败）：*+" . $this->formatTraffic($consolation) . "*\n";
+        } elseif ($streak > 0 && $netProfit < 0) {
+            // 亏损但未触发安慰奖：显示连败进度
+            $nextMilestone = (int)(ceil($streak / 3) * 3);
+            $remaining     = $nextMilestone - $streak;
+            $nextLevel     = min(intdiv($nextMilestone, 3), 4);
+            $nextBonus     = $this->formatTraffic((int)($nextLevel * 0.5 * 1024 * 1024 * 1024));
+            $msg .= "\n💔 *连败 {$streak} 次*，再输 *{$remaining}* 次可获安慰奖 *+{$nextBonus}*\n";
         }
 
         // 投注详情
