@@ -98,11 +98,6 @@ class CleanupSubscribeLogs extends Command
             ", [$cutoffDate]);
             $this->info("✅ 字符修复完成");
 
-            // 备份记录
-            $this->info("💾 正在备份记录...");
-            $this->backupRecords($cutoffDate, $batchSize, $watchedUserIds);
-            $this->info("✅ 已备份记录到 v2_subscribe_pull_log_archive 表");
-
             // 执行删除
             $this->info("🗑️ 开始删除 {$totalRecords} 条记录...");
             $deletedTotal = 0;
@@ -134,9 +129,6 @@ class CleanupSubscribeLogs extends Command
             $progressBar->finish();
             $this->line("");
             $this->info("✅ 清理完成！共删除 {$deletedTotal} 条记录");
-
-            // 记录清理日志
-            $this->logCleanupActivity($deletedTotal, $days);
 
             // 通知管理员
             $this->notifyAdmins($deletedTotal, $days);
@@ -229,65 +221,6 @@ class CleanupSubscribeLogs extends Command
             $this->table(['ID', '操作系统', '国家', '城市', '创建时间'], $invalidRecords->map(function($item) {
                 return [$item->id, $item->os, $item->country, $item->city, $item->created_at];
             })->toArray());
-        }
-    }
-
-    /**
-     * 备份记录到归档表
-     */
-    private function backupRecords($cutoffDate, $batchSize, array $watchedUserIds = [])
-    {
-        try {
-            DB::table('v2_subscribe_pull_log')
-                ->where('created_at', '<', $cutoffDate)
-                ->when(!empty($watchedUserIds), fn($q) => $q->whereNotIn('user_id', $watchedUserIds))
-                ->orderBy('id')
-                ->chunk($batchSize, function ($records) {
-                    DB::table('v2_subscribe_pull_log_archive')->insert(
-                        $records->map(function ($record) {
-                            return (array) $record;
-                        })->toArray()
-                    );
-                });
-            Log::info('订阅日志备份完成', [
-                'cutoff_date' => $cutoffDate->toDateTimeString(),
-                'batch_size' => $batchSize
-            ]);
-        } catch (\Exception $e) {
-            Log::error('订阅日志备份失败', [
-                'error' => $e->getMessage(),
-                'cutoff_date' => $cutoffDate->toDateTimeString()
-            ]);
-        }
-    }
-
-    /**
-     * 记录清理活动日志
-     */
-    private function logCleanupActivity($deletedCount, $days)
-    {
-        try {
-            DB::table('v2_system_log')->insert([
-                'action' => 'subscribe_log_cleanup',
-                'description' => "清理了 {$deletedCount} 条订阅拉取日志（保留 {$days} 天）",
-                'data' => json_encode([
-                    'deleted_count' => $deletedCount,
-                    'keep_days' => $days,
-                    'cleanup_time' => Carbon::now()->format('Y-m-d H:i:s'),
-                    'timezone' => config('app.timezone')
-                ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_IGNORE),
-                'created_at' => now()
-            ]);
-            Log::info('订阅日志清理日志记录成功', [
-                'deleted_count' => $deletedCount,
-                'keep_days' => $days
-            ]);
-        } catch (\Exception $e) {
-            Log::error('订阅日志清理日志记录失败', [
-                'deleted_count' => $deletedCount,
-                'keep_days' => $days,
-                'error' => $e->getMessage()
-            ]);
         }
     }
 
