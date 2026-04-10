@@ -268,6 +268,7 @@ class ClientController extends Controller
             'country'    => $location['country'] ?? null,
             'province'   => $location['province'] ?? null,
             'city'       => $location['city'] ?? null,
+            'isp'        => $location['isp'] ?? null,
             'created_at' => now(),
         ]);
 
@@ -1205,6 +1206,7 @@ class ClientController extends Controller
                 'country'      => $location['country'] ?? null,
                 'province'     => $location['province'] ?? null,
                 'city'         => $location['city'] ?? null,
+                'isp'          => $location['isp'] ?? null,
                 'blocked'      => 1,
                 'block_reason' => $reason,
                 'created_at'   => now(),
