@@ -177,14 +177,16 @@ class DailySubscribeReport extends Command
         }
 
         // ── 浏览器直接访问 ──────────────────────────────────────
+        $browserFilter = function ($q) {
+            $q->where('os', 'like', 'Chrome%')
+              ->orWhere('os', 'like', 'Safari%')
+              ->orWhere('os', 'like', 'Firefox%')
+              ->orWhere('os', 'like', 'Edge%');
+        };
+
         $browserAccess = DB::table('v2_subscribe_pull_log')
             ->whereBetween('created_at', [$start, $end])
-            ->where(function ($q) {
-                $q->where('os', 'like', 'Chrome%')
-                  ->orWhere('os', 'like', 'Safari%')
-                  ->orWhere('os', 'like', 'Firefox%')
-                  ->orWhere('os', 'like', 'Edge%');
-            })
+            ->where($browserFilter)
             ->selectRaw('COUNT(DISTINCT user_id) as users, COUNT(*) as pulls')
             ->first();
 
@@ -192,6 +194,21 @@ class DailySubscribeReport extends Command
             $lines[] = "";
             $lines[] = "🌐 *浏览器直接访问订阅链接*";
             $lines[] = "{$browserAccess->users} 人 / {$browserAccess->pulls} 次（注意是否截图分享）";
+
+            // 列出具体用户及其访问次数
+            $browserUsers = DB::table('v2_subscribe_pull_log as l')
+                ->join('v2_user as u', 'u.id', '=', 'l.user_id')
+                ->whereBetween('l.created_at', [$start, $end])
+                ->where($browserFilter)
+                ->selectRaw('u.email, COUNT(*) as pulls, MAX(l.os) as browser')
+                ->groupBy('u.email')
+                ->orderByDesc('pulls')
+                ->get();
+
+            foreach ($browserUsers as $bu) {
+                $lines[] = "　· {$bu->email}　{$bu->pulls}次　({$bu->browser})";
+            }
+
             if ($browserAccess->users >= 3) {
                 $alerts[] = "⚠️ {$browserAccess->users} 人通过浏览器查看了订阅链接，存在截图泄露风险";
             }

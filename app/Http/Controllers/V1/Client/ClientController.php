@@ -141,14 +141,17 @@ class ClientController extends Controller
         // 获取IP归属地：白名单命中且有完整地区数据则直接复用，否则查询API
         if ($whitelistEntry && !empty($whitelistEntry->country) && $whitelistEntry->country !== '未知') {
             $wProvince = $whitelistEntry->province ?? '';
-            if ($whitelistEntry->country === '中国') {
+            $wCountry  = $whitelistEntry->country  ?? '';
+            // GeoLite2 对港澳台返回独立 country 字段（中文或英文均可能），需一并处理
+            if ($wCountry === '中国') {
                 if (mb_strpos($wProvince, '香港') !== false)      $wCode = 'HK';
                 elseif (mb_strpos($wProvince, '澳门') !== false)  $wCode = 'MO';
                 elseif (mb_strpos($wProvince, '台湾') !== false)  $wCode = 'TW';
                 else                                               $wCode = 'CN';
-            } else {
-                $wCode = '';
-            }
+            } elseif (in_array($wCountry, ['香港', 'Hong Kong'], true))    { $wCode = 'HK'; }
+            elseif (in_array($wCountry, ['澳门', 'Macao', 'Macau'], true)) { $wCode = 'MO'; }
+            elseif (in_array($wCountry, ['台湾', 'Taiwan'], true))         { $wCode = 'TW'; }
+            else                                                            { $wCode = ''; }
             $location = [
                 'country'     => $whitelistEntry->country,
                 'countryCode' => $wCode,
@@ -186,19 +189,29 @@ class ClientController extends Controller
                 $normalize = fn(string $s) => rtrim($s, '省市区县州');
                 $isChinese = fn(string $s) => (bool)preg_match('/\p{Han}/u', $s);
 
-                $currentCity     = $normalize($location['city']     ?? '');
-                $currentProvince = $normalize($location['province'] ?? '');
+                // 省份规范化：汉字去后缀，英文查 GeoIpService 映射表转汉字后再去后缀
+                // GeoIpService 入库前已规范化，此处兜底处理历史遗留的英文记录
+                $normalizeProvince = function(string $s) use ($normalize, $isChinese): string {
+                    $s = trim($s);
+                    if (!$isChinese($s)) {
+                        $s = \App\Services\GeoIpService::PROVINCE_NAME_MAP[$s] ?? $s;
+                    }
+                    return $normalize($s);
+                };
+
+                $currentCity     = $normalize($location['city']         ?? '');
+                $currentProvince = $normalizeProvince($location['province'] ?? '');
 
                 $allKnown = $userWhitelist
                     ->filter(fn($e) => !empty($e->province) && $e->province !== '未知')
                     ->map(fn($e) => [
-                        'province' => $normalize($e->province ?? ''),
-                        'city'     => $normalize($e->city     ?? ''),
+                        'province' => $normalizeProvince($e->province ?? ''),
+                        'city'     => $normalize($e->city ?? ''),
                     ]);
                 $sameCityOk = false;
                 $matchDesc  = '';
 
-                // IPv4 优先城市匹配（双方均为中文才可信）
+                // IPv4 优先城市匹配（双方均为中文才可信，城市名太多无法建映射表）
                 if (!$isIPv6 && $currentCity && $isChinese($currentCity) && $currentCity !== '未知') {
                     foreach ($allKnown as $known) {
                         $kCity = $known['city'];
@@ -210,11 +223,11 @@ class ClientController extends Controller
                     }
                 }
 
-                // 城市未匹配 或 IPv6：降级省份匹配
-                if (!$sameCityOk && $currentProvince && $currentProvince !== '未知') {
+                // 城市未匹配 或 IPv6：降级省份匹配（经映射表规范化后汉英均可比对）
+                if (!$sameCityOk && $currentProvince && $isChinese($currentProvince) && $currentProvince !== '未知') {
                     foreach ($allKnown as $known) {
                         $kProv = $known['province'];
-                        if ($kProv && $kProv !== '未知' && $kProv === $currentProvince) {
+                        if ($kProv && $isChinese($kProv) && $kProv !== '未知' && $kProv === $currentProvince) {
                             $sameCityOk = true;
                             $matchDesc  = "同省份（{$currentProvince}）";
                             break;

@@ -82,6 +82,12 @@ class Kernel extends ConsoleKernel
                  ->withoutOverlapping()
                  ->runInBackground()
                  ->appendOutputTo(storage_path('logs/serverlog-cleanup.log'));
+        // ✅ GeoLite2 IP 数据库每日更新 - 凌晨5点执行（错开其他任务）
+        $schedule->command('geoip:update')
+                 ->dailyAt('05:00')
+                 ->withoutOverlapping()
+                 ->runInBackground()
+                 ->appendOutputTo(storage_path('logs/geoip-update.log'));
         // ✅ 跨省订阅检测任务 - 每天凌晨4点和下午16点执行（24小时窗口，一天两次检测）
         $schedule->command('subscribe:detect-cross-province')
                  ->twiceDaily(4, 16)
