@@ -52,6 +52,11 @@ class Kernel extends ConsoleKernel
                  ->dailyAt('23:50')
                  ->withoutOverlapping()
                  ->runInBackground();
+        // ✅ 每日签到榜单播报 - 凌晨0:05执行，播报昨日欧皇和非酋
+        $schedule->command('checkin:daily-report')
+                 ->dailyAt('00:05')
+                 ->withoutOverlapping()
+                 ->runInBackground();
         // ✅ 每日订阅拉取报告 - 凌晨0:15执行，统计昨天完整数据
         $schedule->command('report:daily-subscribe')
                  ->dailyAt('00:15')
