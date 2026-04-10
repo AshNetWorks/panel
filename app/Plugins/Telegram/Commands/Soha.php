@@ -198,7 +198,11 @@ class Soha extends Telegram
                         $announcement = $this->buildAnnouncement(
                             $tier, $netProfit, $poolBonus, $chatId, $telegramService
                         );
-                        $telegramService->sendMessage($groupId, $announcement, 'markdown');
+                        $resp = $telegramService->sendMessage($groupId, $announcement, 'markdown');
+                        // 发送成功后静默置顶该消息（不通知用户）
+                        if ($resp && isset($resp->result->message_id)) {
+                            $telegramService->pinChatMessage($groupId, $resp->result->message_id, true);
+                        }
                     } catch (\Exception $e) {
                         Log::warning('梭哈大奖公告发送失败', ['user_id' => $user->id, 'error' => $e->getMessage()]);
                     }

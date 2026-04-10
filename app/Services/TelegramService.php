@@ -6,6 +6,10 @@ use App\Jobs\SendTelegramJob;
 use App\Models\User;
 use \Curl\Curl;
 use Illuminate\Mail\Markdown;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 
 class TelegramService {
@@ -63,6 +67,15 @@ class TelegramService {
         return $this->request('editMessageText', $params);
     }
 
+    public function pinChatMessage(int $chatId, int $messageId, bool $disableNotification = true)
+    {
+        return $this->request('pinChatMessage', [
+            'chat_id'              => $chatId,
+            'message_id'           => $messageId,
+            'disable_notification' => $disableNotification,
+        ]);
+    }
+
     public function deleteMessage(int $chatId, int $messageId)
     {
         return $this->request('deleteMessage', [
@@ -71,7 +84,7 @@ class TelegramService {
         ]);
     }
 
-    public function sendMessageWithAutoDelete(int $chatId, string $text, string $parseMode = '', int $deleteAfter = 30, int $userMessageId = null)
+    public function sendMessageWithAutoDelete(int $chatId, string $text, string $parseMode = '', int $deleteAfter = 30, ?int $userMessageId = null)
     {
         $response = $this->sendMessage($chatId, $text, $parseMode);
 
