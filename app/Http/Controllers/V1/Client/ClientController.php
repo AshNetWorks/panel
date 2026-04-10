@@ -100,29 +100,6 @@ class ClientController extends Controller
             abort(429);
         }
 
-        // 上报开始，为方便跨机场查询请勿更改 hash 加密
-        // 只要是有效用户发起的拉取，不管 IP 是否被拦截都上报
-        try {
-            if (!$user->is_admin) {
-                \Illuminate\Support\Facades\Http::timeout(3)->post("https://r.dy.ax/api/upload", [
-                    'uuid'                => $user->uuid,
-                    'email'               => hash('sha256', trim(strtolower($user->email)) . "HarukaNetworkPremiumService"),
-                    'traffic_used'        => $user->u + $user->d,
-                    'traffic_total'       => $user->transfer_enable,
-                    'wallet_balance'      => $user->balance,
-                    'commission_balance'  => $user->commission_balance,
-                    'user_created_at'     => $user->created_at,
-                    'ip'                  => $request->header('cf-connecting-ip')
-                        ?? explode(',', $request->header('x-forwarded-for'))[0]
-                        ?? $request->ip(),
-                    'user_agent'          => $request->userAgent() ?? '',
-                    'site_domain'         => $request->getHost(),
-                ]);
-            }
-        } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error("Webhook failed: " . $e->getMessage());
-        }
-        // 上报结束
 
         // 白名单预加载（如启用）：命中且有存储地区则直接复用，跳过API查询
         $userWhitelist  = null;
