@@ -361,6 +361,45 @@ class EmbyController extends Controller
         }
     }
 
+    /**
+     * 获取用户可见的 Emby 服务器在线状态
+     */
+    public function getServerStatus(Request $request)
+    {
+        $userId = $request->user['id'] ?? null;
+        if (!$userId) {
+            abort(401, '未登录');
+        }
+
+        $servers = DB::table('v2_emby_servers')
+            ->where('status', 1)
+            ->select(['id', 'name', 'url', 'api_key', 'current_users', 'max_users'])
+            ->get();
+
+        $result = [];
+        foreach ($servers as $server) {
+            $online = false;
+            try {
+                $resp = \Illuminate\Support\Facades\Http::timeout(5)
+                    ->withoutVerifying()
+                    ->get(rtrim($server->url, '/') . '/emby/System/Ping?api_key=' . $server->api_key);
+                $online = $resp->successful();
+            } catch (\Exception $e) {
+                // 连接失败，online 保持 false
+            }
+
+            $result[] = [
+                'id'            => $server->id,
+                'name'          => $server->name,
+                'online'        => $online,
+                'current_users' => (int)$server->current_users,
+                'max_users'     => $server->max_users ? (int)$server->max_users : null,
+            ];
+        }
+
+        return response(['data' => $result]);
+    }
+
     // ============ 私有方法 ============
 
     /**
