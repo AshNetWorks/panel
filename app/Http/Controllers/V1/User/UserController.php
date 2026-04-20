@@ -466,4 +466,119 @@ class UserController extends Controller
             'data' => $url
         ]);
     }
+
+    /**
+     * 向旧邮箱和新邮箱各发一次验证码（修改邮箱第一步）
+     */
+    public function sendChangeEmailCode(Request $request)
+    {
+        $newEmail = strtolower(trim($request->input('new_email', '')));
+        if (!$newEmail || !filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
+            abort(422, '请填写有效的新邮箱地址');
+        }
+
+        $user = User::find($request->user['id']);
+        if (!$user) abort(500, __('The user does not exist'));
+
+        if ($user->email === $newEmail) {
+            abort(422, '新邮箱与当前邮箱相同');
+        }
+        if (User::where('email', $newEmail)->where('id', '!=', $user->id)->exists()) {
+            abort(422, '该邮箱已被其他账户使用');
+        }
+
+        // 频率限制：60 秒内只允许触发一次（以旧邮箱为 key）
+        $rateLimitKey = 'change_email_rate:' . $user->id;
+        if (Cache::get($rateLimitKey)) {
+            abort(429, '验证码已发送，请稍后再试');
+        }
+        Cache::put($rateLimitKey, 1, 60);
+
+        $appName = config('v2board.app_name', 'V2Board');
+        $appUrl  = config('v2board.app_url');
+
+        // 旧邮箱验证码
+        $oldCode = rand(100000, 999999);
+        Cache::put(CacheKey::get('EMAIL_VERIFY_CODE', $user->email), $oldCode, 300);
+        \App\Jobs\SendEmailJob::dispatch([
+            'email'          => $user->email,
+            'subject'        => $appName . ' 邮箱变更验证码（当前邮箱）',
+            'template_name'  => 'verify',
+            'template_value' => ['name' => $appName, 'code' => $oldCode, 'url' => $appUrl],
+        ]);
+
+        // 新邮箱验证码
+        $newCode = rand(100000, 999999);
+        Cache::put(CacheKey::get('EMAIL_VERIFY_CODE', $newEmail), $newCode, 300);
+        \App\Jobs\SendEmailJob::dispatch([
+            'email'          => $newEmail,
+            'subject'        => $appName . ' 邮箱变更验证码（新邮箱）',
+            'template_name'  => 'verify',
+            'template_value' => ['name' => $appName, 'code' => $newCode, 'url' => $appUrl],
+        ]);
+
+        return response(['data' => true]);
+    }
+
+    /**
+     * 修改邮箱（旧邮箱验证码 + 新邮箱验证码 + 当前密码，每年限一次）
+     */
+    public function changeEmail(Request $request)
+    {
+        $newEmail    = strtolower(trim($request->input('new_email', '')));
+        $oldCode     = (string)$request->input('old_email_code', '');
+        $newCode     = (string)$request->input('new_email_code', '');
+        $password    = (string)$request->input('password', '');
+
+        if (!$newEmail || !filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
+            abort(422, '请填写有效的新邮箱地址');
+        }
+        if (!$oldCode) abort(422, '请填写当前邮箱的验证码');
+        if (!$newCode) abort(422, '请填写新邮箱的验证码');
+        if (!$password) abort(422, '请填写当前登录密码');
+
+        $user = User::find($request->user['id']);
+        if (!$user) abort(500, __('The user does not exist'));
+
+        // 验证当前密码
+        if (!Helper::multiPasswordVerify($user->password_algo, $user->password_salt, $password, $user->password)) {
+            abort(422, '当前密码错误');
+        }
+
+        // 每年限改一次
+        if ($user->email_changed_at && (time() - $user->email_changed_at) < 365 * 86400) {
+            $nextAllowed = date('Y-m-d', $user->email_changed_at + 365 * 86400);
+            abort(422, "每年只能修改一次邮箱，下次可修改时间：{$nextAllowed}");
+        }
+
+        if ($user->email === $newEmail) abort(422, '新邮箱与当前邮箱相同');
+        if (User::where('email', $newEmail)->where('id', '!=', $user->id)->exists()) {
+            abort(422, '该邮箱已被其他账户使用');
+        }
+
+        // 校验旧邮箱验证码
+        $oldCacheKey = CacheKey::get('EMAIL_VERIFY_CODE', $user->email);
+        if ((string)Cache::get($oldCacheKey) !== $oldCode) {
+            abort(422, '当前邮箱验证码错误或已过期');
+        }
+
+        // 校验新邮箱验证码
+        $newCacheKey = CacheKey::get('EMAIL_VERIFY_CODE', $newEmail);
+        if ((string)Cache::get($newCacheKey) !== $newCode) {
+            abort(422, '新邮箱验证码错误或已过期');
+        }
+
+        Cache::forget($oldCacheKey);
+        Cache::forget($newCacheKey);
+
+        $user->email            = $newEmail;
+        $user->email_changed_at = time();
+        if (!$user->save()) abort(500, '保存失败，请稍后重试');
+
+        // 修改邮箱后踢出所有会话，强制重新登录
+        $authService = new AuthService($user);
+        $authService->removeAllSession();
+
+        return response(['data' => true]);
+    }
 }

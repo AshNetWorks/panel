@@ -18,6 +18,8 @@ class UserRoute
             $router->post('/newPeriod', 'V1\\User\\UserController@newPeriod');
             $router->post('/redeemgiftcard', 'V1\\User\\UserController@redeemgiftcard');
             $router->post('/changePassword', 'V1\\User\\UserController@changePassword');
+            $router->post('/sendChangeEmailCode', 'V1\\User\\UserController@sendChangeEmailCode');
+            $router->post('/changeEmail', 'V1\\User\\UserController@changeEmail');
             $router->post('/update', 'V1\\User\\UserController@update');
             $router->get ('/getSubscribe', 'V1\\User\\UserController@getSubscribe');
             $router->get ('/getStat', 'V1\\User\\UserController@getStat');
