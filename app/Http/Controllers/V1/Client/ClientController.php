@@ -81,19 +81,18 @@ class ClientController extends Controller
 
         // 浏览器直接访问
         if ($this->browserBlockEnabled && $this->isBrowserAccess($userAgentLower)) {
-            $siteName = config('v2board.app_name', '订阅服务');
-            $html = <<<HTML
+            $html = <<<'HTML'
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>请使用客户端导入</title>
+<title>无法访问</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #f0f2f5;
+    background: #f5f5f7;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -102,68 +101,43 @@ class ClientController extends Controller
   }
   .card {
     background: #fff;
-    border-radius: 16px;
-    box-shadow: 0 4px 24px rgba(0,0,0,.08);
-    max-width: 480px;
+    border-radius: 18px;
+    box-shadow: 0 2px 16px rgba(0,0,0,.06);
+    max-width: 420px;
     width: 100%;
-    padding: 40px 36px;
+    padding: 48px 36px;
     text-align: center;
   }
-  .icon { font-size: 56px; margin-bottom: 20px; }
-  h1 { font-size: 20px; color: #1a1a1a; margin-bottom: 10px; }
-  .sub { font-size: 14px; color: #666; line-height: 1.7; margin-bottom: 28px; }
-  .steps {
-    background: #f7f8fa;
+  .icon { font-size: 48px; margin-bottom: 20px; }
+  h1 { font-size: 19px; color: #1d1d1f; margin-bottom: 10px; font-weight: 600; }
+  p  { font-size: 14px; color: #6e6e73; line-height: 1.75; }
+  .tip {
+    margin-top: 24px;
+    background: #f5f5f7;
     border-radius: 10px;
-    padding: 20px 24px;
-    text-align: left;
-    margin-bottom: 24px;
-  }
-  .steps p { font-size: 13px; color: #444; line-height: 2; }
-  .steps strong { color: #1a1a1a; }
-  .clients {
-    display: flex;
-    justify-content: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-bottom: 28px;
-  }
-  .tag {
-    background: #e8f0fe;
-    color: #3b73e8;
-    border-radius: 20px;
-    padding: 4px 14px;
+    padding: 14px 18px;
     font-size: 13px;
-    font-weight: 500;
+    color: #555;
+    line-height: 1.8;
+    text-align: left;
   }
-  .footer { font-size: 12px; color: #bbb; }
 </style>
 </head>
 <body>
 <div class="card">
-  <div class="icon">⛔</div>
-  <h1>请勿用浏览器直接打开订阅链接</h1>
-  <p class="sub">订阅链接是提供给代理客户端使用的配置文件，<br>在浏览器中打开无法正常使用。</p>
-  <div class="steps">
-    <p>① 复制您的订阅链接（地址栏链接）</p>
-    <p>② 打开您使用的代理客户端</p>
-    <p>③ 找到 <strong>添加订阅 / Import</strong> 选项</p>
-    <p>④ 粘贴链接并保存即可</p>
+  <div class="icon">🔗</div>
+  <h1>此链接需要通过 App 打开</h1>
+  <p>该地址是专用配置链接，浏览器无法直接解析其内容。</p>
+  <div class="tip">
+    请回到您的账户页面，<br>
+    使用「<strong>一键导入</strong>」或复制链接后<br>
+    在对应 App 内手动添加。
   </div>
-  <div class="clients">
-    <span class="tag">Clash</span>
-    <span class="tag">Mihomo</span>
-    <span class="tag">V2RayN</span>
-    <span class="tag">Shadowrocket</span>
-    <span class="tag">Sing-Box</span>
-    <span class="tag">Surge</span>
-  </div>
-  <p class="footer">{$siteName}</p>
 </div>
 </body>
 </html>
 HTML;
-            return response($html, 403)->header('Content-Type', 'text/html; charset=utf-8');
+            return response($html, 200)->header('Content-Type', 'text/html; charset=utf-8');
         }
 
         // 爬虫/机器人请求直接拒绝
