@@ -982,6 +982,20 @@ class EmbyController extends Controller
             $query->where('eu.emby_server_id', $serverId);
         }
 
+        $isExpired = $request->input('is_expired');
+
+        if ($isExpired !== null && $isExpired !== '') {
+            if ($isExpired) {
+                $query->whereNotNull('eu.expired_at')
+                      ->whereRaw('eu.expired_at < NOW()');
+            } else {
+                $query->where(function($q) {
+                    $q->whereNull('eu.expired_at')
+                      ->orWhereRaw('eu.expired_at >= NOW()');
+                });
+            }
+        }
+
         if ($status !== null && $status !== '') {
             $query->where('eu.status', $status);
         }
