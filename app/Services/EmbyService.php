@@ -5,20 +5,15 @@ namespace App\Services;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use Exception;
 
 class EmbyService
 {
     private $timeout;
-    private $retryTimes;
-    private $retryDelay;
 
     public function __construct()
     {
         $this->timeout = config('emby.api.timeout', 30);
-        $this->retryTimes = config('emby.api.retry_times', 3);
-        $this->retryDelay = config('emby.api.retry_delay', 1000);
     }
     
     /**
@@ -42,36 +37,6 @@ class EmbyService
         return '0.0.0.0';
     }
     
-    /**
-     * 构建 Emby API 请求头（支持自定义 User-Agent）
-     */
-    private function buildEmbyHeaders($server, $includeAuth = true)
-    {
-        $headers = [
-            'Accept' => 'application/json',
-            'Content-Type' => 'application/json; charset=UTF-8',
-        ];
-        
-        // 添加自定义 User-Agent
-        if (!empty($server->user_agent)) {
-            $headers['User-Agent'] = $server->user_agent;
-        }
-        
-        // 添加自定义 Client
-        if (!empty($server->client_name)) {
-            $headers['Client'] = $server->client_name;
-            $headers['X-Emby-Client'] = $server->client_name;
-        }
-        
-        // 添加认证头
-        if ($includeAuth) {
-            $headers['X-Emby-Token'] = $server->api_key;
-            $headers['Authorization'] = 'MediaBrowser Token="' . $server->api_key . '"';
-        }
-        
-        return $headers;
-    }
-
     /**
     * 诊断：逐项尝试更新用户状态并返回详细尝试结果（不抛异常）
     */
@@ -261,9 +226,6 @@ class EmbyService
             $username = $user->email;
             $password = $this->generateRandomPassword();
 
-            $existingUser = DB::table('v2_emby_users')->where('emby_server_id',$embyServerId)->where('username',$username)->first();
-            if ($existingUser) throw new Exception('您已经在此Emby服务器上拥有账号');
-
             $embyUserId = $this->createUserOnEmbyServer($embyServer,$username,$password);
 
             if (!$embyUserId || !$username) throw new Exception('创建用户失败：无法生成唯一用户名');
@@ -367,42 +329,50 @@ class EmbyService
      */
     public function batchSyncUserExpiration($userIds = null)
     {
+        @set_time_limit(0);
+
+        // 用 pluck+unique 避免 JOIN 导致同一用户重复出现
         $query = DB::table('v2_user as u')
             ->join('v2_emby_users as eu', 'u.id', '=', 'eu.user_id')
             ->whereNotNull('u.plan_id')
-            ->whereNotNull('u.expired_at')
-            ->where('u.banned', 0);
-    
+            ->whereNotNull('u.expired_at');
+
         if ($userIds) {
             $query->whereIn('u.id', $userIds);
         }
-    
-        $users = $query->select(['u.id', 'u.expired_at', 'u.banned', 'u.plan_id'])
+
+        $uniqueIds = $query->pluck('u.id')->unique()->values();
+
+        // 从 v2_user 直接取数据，避免 JOIN 带来的重复行
+        $users = DB::table('v2_user')
+            ->whereIn('id', $uniqueIds)
+            ->whereNotNull('plan_id')
+            ->whereNotNull('expired_at')
+            ->select(['id', 'expired_at', 'banned', 'plan_id'])
             ->get();
-    
+
         $results = [
             'total' => $users->count(),
             'success' => 0,
             'failed' => 0,
             'errors' => []
         ];
-    
+
         foreach ($users as $user) {
             try {
-                $this->syncUserExpiration($user->id, false); // 不记录单个用户日志
+                $this->syncUserExpiration($user->id, false);
                 $results['success']++;
             } catch (Exception $e) {
                 $results['failed']++;
                 $results['errors'][] = "User {$user->id}: " . $e->getMessage();
-                
+
                 Log::error("同步用户 {$user->id} Emby状态失败", [
                     'user_id' => $user->id,
                     'error' => $e->getMessage()
                 ]);
             }
         }
-    
-        // 记录批次同步日志
+
         if ($results['total'] > 0) {
             $message = "批次同步完成: 成功 {$results['success']} 个，失败 {$results['failed']} 个";
             if ($results['failed'] > 0) {
@@ -411,15 +381,10 @@ class EmbyService
                     $message .= " 等" . count($results['errors']) . "个";
                 }
             }
-            
-            $this->createEmbyLog(
-                0, // 系统操作，用户ID为0
-                0, // 系统操作，服务器ID为0
-                'batch_sync',
-                $message
-            );
+
+            $this->createEmbyLog(0, 0, 'batch_sync', $message);
         }
-    
+
         return $results;
     }
 
@@ -432,45 +397,50 @@ class EmbyService
             ->where('id', $userId)
             ->select(['id', 'plan_id', 'expired_at', 'banned'])
             ->first();
-            
+
         if (!$user) {
             throw new Exception('用户不存在');
         }
-    
-        $expiredAt = (int)$user->expired_at;
-        
-        // 更新数据库中的到期时间
-        DB::table('v2_emby_users')
-            ->where('user_id', $userId)
-            ->update([
-                'expired_at' => date('Y-m-d H:i:s', $expiredAt),
-                'updated_at' => now()
-            ]);
-    
-        // 同步到Emby服务器
+
+        $userTs      = (int)$user->expired_at;
+        $shouldEnable = $this->checkUserSubscriptionFromDB($user);
+
         $embyUsers = DB::table('v2_emby_users as eu')
             ->join('v2_emby_servers as es', 'eu.emby_server_id', '=', 'es.id')
             ->where('eu.user_id', $userId)
-            ->select(['eu.*', 'es.url', 'es.api_key'])
+            ->select(['eu.*', 'es.url', 'es.api_key', 'es.user_agent', 'es.client_name'])
             ->get();
-        
+
         foreach ($embyUsers as $embyUser) {
             try {
-                $shouldEnable = $this->checkUserSubscriptionFromDB($user);
-                $this->updateUserStatusOnEmbyServer(
-                    $embyUser, 
-                    $embyUser->emby_user_id, 
-                    $shouldEnable
-                );
-                
-                DB::table('v2_emby_users')
-                    ->where('id', $embyUser->id)
-                    ->update([
-                        'status' => $shouldEnable ? 1 : 0,
-                        'updated_at' => now()
-                    ]);
-                
-                // 只在需要时记录单个用户同步日志
+                $embyTs        = $embyUser->expired_at ? strtotime($embyUser->expired_at) : 0;
+                $expiredChanged = $embyTs !== $userTs;
+                $statusChanged  = (int)$embyUser->status !== (int)$shouldEnable;
+
+                // 没有任何变化，跳过（避免不必要的 API 调用）
+                if (!$expiredChanged && !$statusChanged) {
+                    continue;
+                }
+
+                // 状态需要变化时才调用 Emby API（最耗时操作）
+                if ($statusChanged) {
+                    $this->updateUserStatusOnEmbyServer(
+                        $embyUser,
+                        $embyUser->emby_user_id,
+                        $shouldEnable
+                    );
+                }
+
+                // 更新本地 DB
+                $updateData = ['updated_at' => now()];
+                if ($expiredChanged) {
+                    $updateData['expired_at'] = $userTs > 0 ? date('Y-m-d H:i:s', $userTs) : null;
+                }
+                if ($statusChanged) {
+                    $updateData['status'] = $shouldEnable ? 1 : 0;
+                }
+                DB::table('v2_emby_users')->where('id', $embyUser->id)->update($updateData);
+
                 if ($logIndividual) {
                     $this->createEmbyLog(
                         $userId,
@@ -479,27 +449,18 @@ class EmbyService
                         "同步用户状态成功: {$embyUser->username}"
                     );
                 }
-                
+
             } catch (Exception $e) {
                 $this->createEmbyLog(
-                    $userId, 
-                    $embyUser->emby_server_id, 
-                    'sync_failed', 
+                    $userId,
+                    $embyUser->emby_server_id,
+                    'sync_failed',
                     "同步用户状态失败: " . $e->getMessage()
                 );
             }
         }
     }
 
-    /**
-     * 生成唯一用户名（直接使用邮箱地址）
-     */
-    private function generateUniqueUsername($email, $embyServerId, $attempt = 1)
-    {
-        // 直接返回邮箱地址作为用户名
-        return $email;
-    }
-    
     /**
      * 生成随机密码（8位字母数字组合）
      */
@@ -509,26 +470,10 @@ class EmbyService
         $password = '';
         
         for ($i = 0; $i < 8; $i++) {
-            $password .= $characters[rand(0, strlen($characters) - 1)];
+            $password .= $characters[random_int(0, strlen($characters) - 1)];
         }
         
         return $password;
-    }
-
-    /**
-     * 标准化过期时间格式
-     */
-    private function normalizeExpiredAt($expiredAt)
-    {
-        if (!$expiredAt) {
-            return null;
-        }
-
-        if (is_numeric($expiredAt)) {
-            return (int)$expiredAt;
-        }
-
-        return strtotime($expiredAt);
     }
 
     /**
@@ -562,31 +507,6 @@ class EmbyService
             'created_at' => now()
         ]);
     }
-
-    /**
-     * 带重试机制的HTTP请求
-     */
-    private function httpRequest($method, $url, $data = [], $attempt = 1)
-    {
-        try {
-            $response = Http::timeout($this->timeout)
-                ->$method($url, $data);
-
-            if (!$response->successful()) {
-                throw new Exception("HTTP {$response->status()}: {$response->body()}");
-            }
-
-            return $response;
-
-        } catch (Exception $e) {
-            if ($attempt < $this->retryTimes) {
-                usleep($this->retryDelay * 1000);
-                return $this->httpRequest($method, $url, $data, $attempt + 1);
-            }
-            throw $e;
-        }
-    }
-
 
     /**
      * 更新Emby服务器用户状态
@@ -796,7 +716,7 @@ class EmbyService
             throw new Exception('所有设置密码请求均失败');
     
         } catch (Exception $e) {
-            \Log::error('更新Emby用户密码失败', [
+            Log::error('更新Emby用户密码失败', [
                 'error' => $e->getMessage(),
                 'emby_user_id' => $embyUserId
             ]);
@@ -857,7 +777,7 @@ class EmbyService
                     $errorBody = $response->body();
                     $statusCode = $response->status();
                     
-                    \Log::error('所有API调用方式都失败', [
+                    Log::error('所有API调用方式都失败', [
                         'status_code' => $statusCode,
                         'response_body' => $errorBody
                     ]);
@@ -880,7 +800,7 @@ class EmbyService
             } elseif (isset($userData['ID'])) {
                 $userId = $userData['ID'];
             } else {
-                \Log::error('Emby响应数据异常', ['response' => $userData]);
+                Log::error('Emby响应数据异常', ['response' => $userData]);
                 throw new Exception('Emby服务器返回数据异常，无法获取用户ID');
             }
     
@@ -911,7 +831,7 @@ class EmbyService
             return $userId;
     
         } catch (Exception $e) {
-            \Log::error('创建Emby用户失败', [
+            Log::error('创建Emby用户失败', [
                 'error' => $e->getMessage(),
                 'server_url' => $embyServer->url ?? 'Unknown',
                 'username' => $username
@@ -920,6 +840,7 @@ class EmbyService
             throw $e; // 重新抛出异常，保持原始错误信息
         }
     }
+
     /**
      * 设置Emby用户密码（新增方法）
      */
@@ -928,37 +849,30 @@ class EmbyService
         $baseUrl = rtrim($embyServer->url, '/');
         $apiKey = $embyServer->api_key;
         $url = $baseUrl . '/emby/Users/' . $userId . '/Password';
-    
-        // ← 构建 headers（包含自定义UA）
+
         $headers = ['Content-Type' => 'application/json'];
         if (!empty($embyServer->user_agent)) {
             $headers['User-Agent'] = $embyServer->user_agent;
         }
-    
+
         $passwordData = [
             'Id' => $userId,
             'CurrentPw' => '',
             'NewPw' => $password,
             'ResetPassword' => true
         ];
-    
-        // 方式1: 使用查询参数 + 自定义UA
+
         $response = Http::timeout($this->timeout)
-            ->withHeaders($headers)  // ← 添加
+            ->withHeaders($headers)
             ->post($url . '?api_key=' . $apiKey, $passwordData);
-    
+
         if (!$response->successful()) {
-            // 方式2: 使用Header + 自定义UA
             if ($response->status() === 401) {
-                $authHeaders = array_merge($headers, [  // ← 合并
-                    'X-Emby-Token' => $apiKey
-                ]);
-                
+                $authHeaders = array_merge($headers, ['X-Emby-Token' => $apiKey]);
                 $response = Http::timeout($this->timeout)
-                    ->withHeaders($authHeaders)  // ← 使用合并后的
+                    ->withHeaders($authHeaders)
                     ->post($url, $passwordData);
             }
-            
             if (!$response->successful()) {
                 throw new Exception("设置用户密码失败 HTTP {$response->status()}: {$response->body()}");
             }
@@ -1025,20 +939,18 @@ class EmbyService
             }
     
             // 使用DELETE方法删除用户
-            $response = \Illuminate\Support\Facades\Http::timeout($this->timeout)
-                ->withHeaders($headers)  // ← 添加headers
+            $response = Http::timeout($this->timeout)
+                ->withHeaders($headers)
                 ->delete($url . '?api_key=' . $apiKey);
-    
+
             if (!$response->successful()) {
-                // 尝试其他认证方式
                 if ($response->status() === 401) {
-                    // 合并认证头和自定义User-Agent
                     $authHeaders = array_merge($headers, [
                         'X-Emby-Token' => $apiKey
                     ]);
-                    
-                    $response = \Illuminate\Support\Facades\Http::timeout($this->timeout)
-                        ->withHeaders($authHeaders)  // ← 使用合并后的headers
+
+                    $response = Http::timeout($this->timeout)
+                        ->withHeaders($authHeaders)
                         ->delete($url);
                 }
                 
@@ -1052,7 +964,6 @@ class EmbyService
         }
     }
 
-   
     /**
      * 获取Emby服务器媒体库数量
      */
@@ -1061,46 +972,41 @@ class EmbyService
         try {
             $baseUrl = rtrim($embyServer->url, '/');
             $apiKey = $embyServer->api_key;
-            
-            // ← 构建 headers（包含自定义UA）
+
             $baseHeaders = ['Accept' => 'application/json'];
             if (!empty($embyServer->user_agent)) {
                 $baseHeaders['User-Agent'] = $embyServer->user_agent;
             }
-            
+
             $endpoints = [
                 '/Library/VirtualFolders',
                 '/emby/Library/VirtualFolders',
                 '/Library/MediaFolders',
                 '/emby/Library/MediaFolders'
             ];
-            
+
             foreach ($endpoints as $endpoint) {
                 try {
                     $url = $baseUrl . $endpoint;
-                    
-                    // 方式1: 使用查询参数 + 自定义UA
+
                     $response = Http::timeout($this->timeout)
                         ->withoutVerifying()
-                        ->withHeaders($baseHeaders)  // ← 添加
+                        ->withHeaders($baseHeaders)
                         ->get($url . '?api_key=' . $apiKey);
-                    
+
                     if (!$response->successful()) {
-                        // 方式2: 使用Header + 自定义UA
-                        $authHeaders = array_merge($baseHeaders, [  // ← 合并
+                        $authHeaders = array_merge($baseHeaders, [
                             'X-Emby-Token' => $apiKey,
                             'Authorization' => 'MediaBrowser Token="' . $apiKey . '"'
                         ]);
-                        
                         $response = Http::timeout($this->timeout)
                             ->withoutVerifying()
-                            ->withHeaders($authHeaders)  // ← 使用合并后的
+                            ->withHeaders($authHeaders)
                             ->get($url);
                     }
-                    
+
                     if ($response->successful()) {
                         $data = $response->json();
-                        
                         if (is_array($data)) {
                             return count($data);
                         } elseif (isset($data['Items']) && is_array($data['Items'])) {
@@ -1110,25 +1016,14 @@ class EmbyService
                         }
                     }
                 } catch (Exception $e) {
-                    \Log::warning('获取媒体库数量失败', [
-                        'endpoint' => $endpoint,
-                        'error' => $e->getMessage()
-                    ]);
+                    Log::warning('获取媒体库数量失败', ['endpoint' => $endpoint, 'error' => $e->getMessage()]);
                     continue;
                 }
             }
-            
-            \Log::warning('所有媒体库API端点都失败', [
-                'server_id' => $embyServer->id ?? 'unknown',
-                'server_url' => $embyServer->url ?? 'unknown'
-            ]);
+
             return 0;
-            
         } catch (Exception $e) {
-            \Log::error('获取媒体库数量异常', [
-                'error' => $e->getMessage(),
-                'server_id' => $embyServer->id ?? 'unknown'
-            ]);
+            Log::error('获取媒体库数量异常', ['error' => $e->getMessage(), 'server_id' => $embyServer->id ?? 'unknown']);
             return 0;
         }
     }
@@ -1141,78 +1036,63 @@ class EmbyService
         try {
             $baseUrl = rtrim($embyServer->url, '/');
             $apiKey = $embyServer->api_key;
-            
-            // ← 构建 headers（包含自定义UA）
+
             $baseHeaders = ['Accept' => 'application/json'];
             if (!empty($embyServer->user_agent)) {
                 $baseHeaders['User-Agent'] = $embyServer->user_agent;
             }
-            
-            $endpoints = [
-                '/Items/Counts',
-                '/emby/Items/Counts'
-            ];
-            
+
+            $endpoints = ['/Items/Counts', '/emby/Items/Counts'];
+
             foreach ($endpoints as $endpoint) {
                 try {
                     $url = $baseUrl . $endpoint;
-                    
-                    // 方式1: 使用查询参数 + 自定义UA
+
                     $response = Http::timeout($this->timeout)
                         ->withoutVerifying()
-                        ->withHeaders($baseHeaders)  // ← 添加
+                        ->withHeaders($baseHeaders)
                         ->get($url . '?api_key=' . $apiKey);
-                    
+
                     if (!$response->successful()) {
-                        // 方式2: 使用Header + 自定义UA
-                        $authHeaders = array_merge($baseHeaders, [  // ← 合并
+                        $authHeaders = array_merge($baseHeaders, [
                             'X-Emby-Token' => $apiKey,
                             'Authorization' => 'MediaBrowser Token="' . $apiKey . '"'
                         ]);
-                        
                         $response = Http::timeout($this->timeout)
                             ->withoutVerifying()
-                            ->withHeaders($authHeaders)  // ← 使用合并后的
+                            ->withHeaders($authHeaders)
                             ->get($url);
                     }
-                    
+
                     if ($response->successful()) {
                         $data = $response->json();
-                        
                         return [
-                            'movie_count' => $data['MovieCount'] ?? 0,
-                            'series_count' => $data['SeriesCount'] ?? 0,
-                            'episode_count' => $data['EpisodeCount'] ?? 0,
-                            'song_count' => $data['SongCount'] ?? 0,
-                            'album_count' => $data['AlbumCount'] ?? 0,
-                            'artist_count' => $data['ArtistCount'] ?? 0,
+                            'movie_count'       => $data['MovieCount'] ?? 0,
+                            'series_count'      => $data['SeriesCount'] ?? 0,
+                            'episode_count'     => $data['EpisodeCount'] ?? 0,
+                            'song_count'        => $data['SongCount'] ?? 0,
+                            'album_count'       => $data['AlbumCount'] ?? 0,
+                            'artist_count'      => $data['ArtistCount'] ?? 0,
                             'music_video_count' => $data['MusicVideoCount'] ?? 0,
-                            'book_count' => $data['BookCount'] ?? 0,
-                            'game_count' => $data['GameCount'] ?? 0,
-                            'trailer_count' => $data['TrailerCount'] ?? 0,
-                            'box_set_count' => $data['BoxSetCount'] ?? 0,
-                            'program_count' => $data['ProgramCount'] ?? 0,
+                            'book_count'        => $data['BookCount'] ?? 0,
+                            'game_count'        => $data['GameCount'] ?? 0,
+                            'trailer_count'     => $data['TrailerCount'] ?? 0,
+                            'box_set_count'     => $data['BoxSetCount'] ?? 0,
+                            'program_count'     => $data['ProgramCount'] ?? 0,
                             'game_system_count' => $data['GameSystemCount'] ?? 0,
-                            'total_item_count' => $data['ItemCount'] ?? 0,
+                            'total_item_count'  => $data['ItemCount'] ?? 0,
                             'is_favorite_count' => $data['IsFavorite'] ?? 0
                         ];
                     }
                 } catch (Exception $e) {
-                    \Log::warning('获取媒体统计信息失败', [
-                        'endpoint' => $endpoint,
-                        'error' => $e->getMessage()
-                    ]);
+                    Log::warning('获取媒体统计信息失败', ['endpoint' => $endpoint, 'error' => $e->getMessage()]);
                     continue;
                 }
             }
-            
+
             return $this->getEmptyMediaStatistics();
-            
         } catch (Exception $e) {
-            \Log::error('获取媒体统计信息异常', [
-                'error' => $e->getMessage(),
-                'server_id' => $embyServer->id ?? 'unknown'
-            ]);
+            Log::error('获取媒体统计信息异常', ['error' => $e->getMessage(), 'server_id' => $embyServer->id ?? 'unknown']);
             return $this->getEmptyMediaStatistics();
         }
     }
@@ -1223,25 +1103,23 @@ class EmbyService
     private function getEmptyMediaStatistics()
     {
         return [
-            'movie_count' => 0,
-            'series_count' => 0,
-            'episode_count' => 0,
-            'song_count' => 0,
-            'album_count' => 0,
-            'artist_count' => 0,
+            'movie_count'       => 0,
+            'series_count'      => 0,
+            'episode_count'     => 0,
+            'song_count'        => 0,
+            'album_count'       => 0,
+            'artist_count'      => 0,
             'music_video_count' => 0,
-            'book_count' => 0,
-            'game_count' => 0,
-            'trailer_count' => 0,
-            'box_set_count' => 0,
-            'program_count' => 0,
+            'book_count'        => 0,
+            'game_count'        => 0,
+            'trailer_count'     => 0,
+            'box_set_count'     => 0,
+            'program_count'     => 0,
             'game_system_count' => 0,
-            'total_item_count' => 0,
+            'total_item_count'  => 0,
             'is_favorite_count' => 0
         ];
     }
-
-
 
     /**
      * 获取默认Emby用户权限配置（修复权限设置）
@@ -1289,5 +1167,130 @@ class EmbyService
             'EnableAllDevices' => true,
             'AuthenticationProviderId' => 'Emby.Server.Implementations.Library.DefaultAuthenticationProvider'
         ];
+    }
+
+    /**
+     * 清理过期账号（供 emby:cleanup 命令调用）
+     * 只删除：Emby 端已过期+已禁用，且用户订阅也确实已过期/无套餐/被封禁的账号
+     */
+    public function cleanupExpiredAccounts(int $days = 30): array
+    {
+        $cutoffDate = now()->subDays($days);
+
+        $expiredEmbyUsers = DB::table('v2_emby_users as eu')
+            ->join('v2_user as u', 'eu.user_id', '=', 'u.id')
+            ->whereNotNull('eu.expired_at')
+            ->where('eu.expired_at', '<', $cutoffDate)
+            ->where('eu.status', 0)
+            ->where(function ($q) {
+                $q->whereNull('u.plan_id')
+                  ->orWhere('u.expired_at', '<', time())
+                  ->orWhere('u.banned', 1);
+            })
+            ->select(['eu.user_id', 'eu.emby_server_id', 'eu.username'])
+            ->get();
+
+        $results = [
+            'total'   => $expiredEmbyUsers->count(),
+            'success' => 0,
+            'failed'  => 0,
+            'errors'  => [],
+        ];
+
+        foreach ($expiredEmbyUsers as $embyUser) {
+            try {
+                $res = $this->deleteEmbyUser($embyUser->user_id, $embyUser->emby_server_id);
+                if (!empty($res['success'])) {
+                    $results['success']++;
+                } else {
+                    $results['failed']++;
+                    $results['errors'][] = "User {$embyUser->user_id}: " . ($res['message'] ?? '删除失败');
+                }
+            } catch (Exception $e) {
+                $results['failed']++;
+                $results['errors'][] = "User {$embyUser->user_id}: " . $e->getMessage();
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * 检查服务器健康状态（供 emby:health-check 命令调用）
+     */
+    public function checkServerHealth($serverId = null): array
+    {
+        $query = DB::table('v2_emby_servers')->where('status', 1);
+        if ($serverId) {
+            $query->where('id', $serverId);
+        }
+        $servers = $query->get();
+
+        $results = [];
+        foreach ($servers as $server) {
+            try {
+                $baseUrl  = rtrim($server->url, '/');
+                $headers  = ['Accept' => 'application/json'];
+                if (!empty($server->user_agent)) {
+                    $headers['User-Agent'] = $server->user_agent;
+                }
+
+                $response = Http::timeout(8)
+                    ->withoutVerifying()
+                    ->withHeaders($headers)
+                    ->get($baseUrl . '/emby/System/Info?api_key=' . $server->api_key);
+
+                if ($response->successful()) {
+                    $results[] = [
+                        'server_id'   => $server->id,
+                        'server_name' => $server->name,
+                        'status'      => 'online',
+                        'info'        => $response->json() ?? [],
+                        'error'       => null,
+                    ];
+                } else {
+                    $results[] = [
+                        'server_id'   => $server->id,
+                        'server_name' => $server->name,
+                        'status'      => 'offline',
+                        'info'        => [],
+                        'error'       => "HTTP {$response->status()}",
+                    ];
+                }
+            } catch (Exception $e) {
+                $results[] = [
+                    'server_id'   => $server->id,
+                    'server_name' => $server->name,
+                    'status'      => 'offline',
+                    'info'        => [],
+                    'error'       => $e->getMessage(),
+                ];
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * 重新计算并更新各服务器的实际用户数（供 emby:sync 命令调用）
+     */
+    public function syncServerUserCounts($serverId = null): void
+    {
+        $query = DB::table('v2_emby_servers');
+        if ($serverId) {
+            $query->where('id', $serverId);
+        }
+        $serverIds = $query->pluck('id');
+
+        foreach ($serverIds as $id) {
+            $count = DB::table('v2_emby_users')
+                ->where('emby_server_id', $id)
+                ->where('status', 1)
+                ->count();
+
+            DB::table('v2_emby_servers')
+                ->where('id', $id)
+                ->update(['current_users' => $count, 'updated_at' => now()]);
+        }
     }
 }

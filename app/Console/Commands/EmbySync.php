@@ -227,20 +227,6 @@ class EmbySync extends Command
     }
 
     /**
-     * 过滤有变化的用户
-     */
-    private function filterChangedUsers(array $userIds): array
-    {
-        $changed = [];
-        foreach ($userIds as $uid) {
-            if ($this->hasUserChanged((int)$uid)) {
-                $changed[] = (int)$uid;
-            }
-        }
-        return $changed;
-    }
-
-    /**
      * 检查用户是否有变化（对齐实际库结构）
      * - v2_user.expired_at: 时间戳(int)
      * - v2_emby_users.expired_at: datetime 字符串

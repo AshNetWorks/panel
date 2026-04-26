@@ -3,12 +3,15 @@
 namespace App\Jobs;
 
 use App\Models\Order;
+use App\Services\EmbyService;
 use App\Services\OrderService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class OrderHandleJob implements ShouldQueue
 {
@@ -16,7 +19,7 @@ class OrderHandleJob implements ShouldQueue
     protected $tradeNo;
 
     public $tries = 3;
-    public $timeout = 5;
+    public $timeout = 60;
     /**
      * Create a new job instance.
      *
@@ -49,7 +52,22 @@ class OrderHandleJob implements ShouldQueue
                 break;
             case 1:
                 $orderService->open();
+                $this->syncEmbyIfNeeded($order->user_id);
                 break;
+        }
+    }
+
+    private function syncEmbyIfNeeded(int $userId): void
+    {
+        try {
+            $exists = DB::table('v2_emby_users')->where('user_id', $userId)->exists();
+            if (!$exists) return;
+            app(EmbyService::class)->syncUserExpiration($userId);
+        } catch (\Throwable $e) {
+            Log::error('OrderHandleJob: Emby sync failed', [
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
         }
     }
 }

@@ -81,6 +81,7 @@ class UserRoute
             $router->post('/emby/save', 'V1\\User\\EmbyController@save');
             $router->post('/emby/drop', 'V1\\User\\EmbyController@drop');
             $router->post('/emby/resetPassword', 'V1\\User\\EmbyController@resetPassword');
+            $router->post('/emby/syncSelf', 'V1\\User\\EmbyController@syncSelf');
             $router->get ('/emby/getServerStatus', 'V1\\User\\EmbyController@getServerStatus');
             
             // 管理员功能（通过权限检查控制访问）

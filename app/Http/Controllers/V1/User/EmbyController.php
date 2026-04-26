@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Services\EmbyService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 
 class EmbyController extends Controller
@@ -373,14 +374,21 @@ class EmbyController extends Controller
 
         $servers = DB::table('v2_emby_servers')
             ->where('status', 1)
-            ->select(['id', 'name', 'url', 'api_key', 'current_users', 'max_users'])
+            ->select(['id', 'name', 'url', 'api_key', 'current_users', 'max_users', 'last_check_at'])
             ->get();
+
+        // 当前用户已有账号的服务器ID集合
+        $accountServerIds = DB::table('v2_emby_users')
+            ->where('user_id', $userId)
+            ->pluck('emby_server_id')
+            ->flip()
+            ->all();
 
         $result = [];
         foreach ($servers as $server) {
             $online = false;
             try {
-                $resp = \Illuminate\Support\Facades\Http::timeout(5)
+                $resp = Http::timeout(5)
                     ->withoutVerifying()
                     ->get(rtrim($server->url, '/') . '/emby/System/Ping?api_key=' . $server->api_key);
                 $online = $resp->successful();
@@ -388,12 +396,19 @@ class EmbyController extends Controller
                 // 连接失败，online 保持 false
             }
 
+            $maxUsers    = $server->max_users ? (int)$server->max_users : null;
+            $currentUsers = (int)$server->current_users;
+
             $result[] = [
                 'id'            => $server->id,
                 'name'          => $server->name,
-                'online'        => $online,
-                'current_users' => (int)$server->current_users,
-                'max_users'     => $server->max_users ? (int)$server->max_users : null,
+                'url'           => $server->url,
+                'status'        => $online,
+                'current_users' => $currentUsers,
+                'max_users'     => $maxUsers,
+                'last_check_at' => $server->last_check_at ? strtotime($server->last_check_at) : null,
+                'usage_rate'    => $maxUsers ? round(($currentUsers / $maxUsers) * 100, 1) : 0,
+                'has_account'   => isset($accountServerIds[$server->id]),
             ];
         }
 
@@ -899,6 +914,9 @@ class EmbyController extends Controller
         $deleted = DB::table('v2_emby_servers')->where('id', $id)->delete();
         if ($deleted === 0) abort(404, '服务器不存在');
 
+        // 清理该服务器下所有关联的 Emby 用户记录
+        DB::table('v2_emby_users')->where('emby_server_id', $id)->delete();
+
         return response(['data' => ['message' => '服务器删除成功']]);
     }
 
@@ -919,9 +937,12 @@ class EmbyController extends Controller
         $baseUrl = rtrim($server->url, '/');
         $apiKey = $server->api_key;
         try {
-            $resp = \Illuminate\Support\Facades\Http::timeout(8)
+            $resp = Http::timeout(8)
                 ->withoutVerifying()
                 ->get($baseUrl . '/emby/System/Info?api_key=' . $apiKey);
+
+            DB::table('v2_emby_servers')->where('id', $id)->update(['last_check_at' => now()]);
+
             if ($resp->successful()) {
                 return response(['data' => ['message' => '连接成功']]);
             }
@@ -1281,11 +1302,17 @@ class EmbyController extends Controller
         $days = (int)$request->input('days', 0);
         $threshold = $days > 0 ? now()->subDays($days) : now();
 
-        // v2_emby_users.expired_at 是 datetime 字段
-        $expiredUsers = DB::table('v2_emby_users')
-            ->whereNotNull('expired_at')
-            ->where('expired_at', '<', $threshold)
-            ->select(['id', 'user_id', 'emby_server_id'])
+        // 同时校验 v2_user 的实际订阅状态，避免误删已续费用户
+        $expiredUsers = DB::table('v2_emby_users as eu')
+            ->join('v2_user as u', 'eu.user_id', '=', 'u.id')
+            ->whereNotNull('eu.expired_at')
+            ->where('eu.expired_at', '<', $threshold)
+            ->where(function ($q) {
+                $q->whereNull('u.plan_id')
+                  ->orWhere('u.expired_at', '<', time())
+                  ->orWhere('u.banned', 1);
+            })
+            ->select(['eu.id', 'eu.user_id', 'eu.emby_server_id'])
             ->get();
 
         $total = $expiredUsers->count();

@@ -148,6 +148,15 @@ class Kernel extends ConsoleKernel
             }
         }
 
+        // Emby 过期账号清理 - 每日凌晨 4:00，清理30天前过期且订阅已终止的账号
+        if (config('emby.cleanup.enabled', true)) {
+            $schedule->command('emby:cleanup --days=30')
+                ->dailyAt('04:00')
+                ->withoutOverlapping()
+                ->runInBackground()
+                ->appendOutputTo(storage_path('logs/emby-cleanup.log'));
+        }
+
         // Emby 日志清理任务 - 每日凌晨 2:30
         if (config('emby.logging.enabled', true)) {
             $schedule->call(function () {
